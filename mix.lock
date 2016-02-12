@@ -1,0 +1,5 @@
+%{"cowboy": {:hex, :cowboy, "1.0.4"},
+  "cowlib": {:hex, :cowlib, "1.0.2"},
+  "gen_serial": {:git, "https://github.com/tomszilagyi/gen_serial.git", "d3c3ff93d37492237a540bca6c4bd3ac288beb87", [tag: "v0.2"]},
+  "ranch": {:hex, :ranch, "1.2.1"},
+  "sockjs": {:git, "https://github.com/ably-forks/sockjs-erlang.git", "71d5708027f792146ac5ae7982acde6327278400", []}}
