@@ -1,0 +1,17 @@
+#!/usr/bin/env escript
+
+main([Arg]) when Arg =:= "win32"; Arg =:= "win64" ->
+	ok = code:add_paths(["_build/keepme/ebin" | filelib:wildcard("_build/dev/lib/*/ebin")]),
+
+	Root = case Arg of
+		"win32" -> "C:\\Program Files\\erl7.2.1-32bit";
+		"win64" -> "C:\\Program Files\\erl7.2.1"
+	end,
+	systools:make_script("tinyconnect", [no_warn_sasl]),
+	systools:make_tar("tinyconnect", [{outdir, "./target"}, {erts, Root}]),
+
+	ok = file:write_file("./target/" ++ Arg ++ "/tinyconnect.bat",
+		<<"start erts-7.2.1\bin\erl.exe -boot releases/0.3.0-alpha/start\r\nstart chrome.exe --app=http://localhost:6999">>);
+
+main(_) ->
+	io:format("usage: ./build <win32|win64>").

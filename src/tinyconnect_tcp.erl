@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 -export([
-     start_link/1
+     start_link/2
 
    , init/1
    , handle_call/3
@@ -12,25 +12,30 @@
    , code_change/3
 ]).
 
-start_link(NID) ->
+start_link(NID, Path) ->
    RegName = binary_to_atom(<<"upstream:", NID/binary>>, utf8),
-   gen_server:start_link({local, RegName}, ?MODULE, [NID], []).
+   gen_server:start_link({local, RegName}, ?MODULE, [NID, Path], []).
 
-init([NID]) ->
+init([NID, Path]) ->
    Opts = [binary, {packet, raw}],
    case gen_tcp:connect("tcp.cloud-ng.tiny-mesh.com", 7001, Opts) of
       {ok, Socket} ->
+			io:format("conn[~p]: connected ~p~n", [self(), Socket]),
          ok = maybe_create_pg2_group(NID),
+
+   		ok = tinyconnect_tty_ports:update(Path, #{conn => true}),
 
          {ok, #{
               sock => Socket
             , nid => NID
+            , path => Path
          }};
 
       {error, _Err} = Res ->
          Res
    end.
 
+handle_call(stop, _From, State) -> {stop, normal, ok, State};
 handle_call(nil, _From, State) -> {noreply, State}.
 
 handle_cast(nil, State) -> {noreply, State}.
@@ -49,8 +54,9 @@ handle_info({tcp, _Port, Buf}, #{nid := NID} = State) ->
    lists:foreach(fun(PID) -> PID ! {bus, {self(), NID, upstream}, Buf} end, Items),
    {noreply, State}.
 
-terminate(_Reason, #{sock := Sock}) ->
-   ok = gen_tcp:close(Sock).
+terminate(_Reason, #{sock := Sock, path := Path}) ->
+   ok = tinyconnect_tty_ports:update(Path, #{conn => false}),
+   _ = gen_tcp:close(Sock).
 
 code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
 

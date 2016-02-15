@@ -43,27 +43,49 @@ releaseport(Port, Server) ->
    ok = gen_serial:set_owner(Port, Server).
 
 stop()       -> stop(?MODULE).
-stop(Server) -> gen_server:cast(Server, stop).
+stop(Server) -> gen_server:call(Server, stop).
 
-init([Port]) ->
-   Port2 = binary_to_list(Port),
+init([Path]) ->
+   Path2 = binary_to_list(Path),
    Opts = [{active, once}, {packet, none}, {baud, 19200}, {flow_control, none}],
-   {ok, Ref} = gen_serial:open(Port2, Opts),
 
-   {ok, {NID, SID, UID}} = tinyconnect_config:identify(Ref),
+	case gen_serial:open(Path2, Opts) of
+   	{ok, Ref} ->
+			case tinyconnect_config:identify(Ref) of
+				{error, timeout} ->
+					{error, 'identify-timeout'};
 
-   B64NID = integer_to_binary(NID, 36),
-   ok = maybe_create_pg2_group(B64NID),
+				{ok, {0, _SID, _UID}} ->
+					io:format("tty[~p]: unconfigured ~p~n", [self(), Path]),
+					{error, nid};
 
-   {ok, Sock} = tinyconnect_tcp:start_link(B64NID),
-   {ok, #{
-        port => Ref
-      , rest => <<>>
-      , nid => B64NID
-      , sid => SID
-      , uid => UID
-      , sock => Sock
-   }}.
+				{ok, {NID, SID, UID}} ->
+					io:format("tty[~p]: connected ~p~n", [self(), {NID, SID, UID}]),
+
+					B64NID = integer_to_binary(NID, 36),
+					ok = maybe_create_pg2_group(B64NID),
+
+					{ok, Conn} = tinyconnect_tcp:start_link(B64NID, Path),
+
+					ok = tinyconnect_tty_ports:update(Path, #{uart => true
+																		 , nid => B64NID
+																		 , sid => SID
+																		 , uid => UID}),
+
+					{ok, #{
+						  port => Ref
+						, path => Path
+						, rest => <<>>
+						, nid => B64NID
+						, sid => SID
+						, uid => UID
+						, conn => Conn
+					}}
+			end;
+
+		{error, {exit, {signal, 11}}} ->
+			{error, eaccess}
+	end.
 
 handle_call(steal, _from, #{port := Port} = State) ->
    {reply, {ok, Port}, State};
@@ -71,11 +93,13 @@ handle_call(steal, _from, #{port := Port} = State) ->
 handle_call({send, Buf}, _From, #{port := Port} = State) ->
    io:format("uart/send: ~p~n", [Buf]),
    Reply = gen_serial:bsend(Port, [Buf], 1000),
-   {reply, Reply, State}.
+   {reply, Reply, State};
 
-handle_cast(stop, #{port := Port} = State) ->
+handle_call(stop, _From, #{port := Port} = State) ->
    ok = gen_serial:close(Port, 1000),
-   {stop, normal, State}.
+   {stop, normal, ok, State}.
+
+handle_cast(nil, State) -> {noreply, State}.
 
 handle_info({serial, Port, Buf}, #{port := Port, rest := Rest} = State) ->
    NewBuf = <<Rest/binary, Buf/binary>>,
@@ -102,8 +126,10 @@ handle_info({bus, {_PID, _NID, upstream}, _Buf}, #{} = State) ->
 handle_info({bus, {_PID, _NID, downstream}, _Buf}, State) -> {noreply, State}.
 
 
-terminate(_Reason, #{port := Port}) ->
-   ok = gen_serial:close(Port, 1000).
+terminate(_Reason, #{port := Port, path := Path, conn := Conn}) ->
+  	_ = gen_serial:close(Port, 1000),
+   ok = tinyconnect_tty_ports:update(Path, #{uart => false}),
+	ok = gen_server:call(Conn, stop).
 
 code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
 

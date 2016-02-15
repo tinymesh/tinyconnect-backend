@@ -6,16 +6,24 @@
      init/1
    , start/2
    , stop/1
+
+   , main/1
 ]).
 
 start(_, _) ->
 
    State = tinyconnect_http:init(),
-   Routes = [ {"/sockjs/[...]", sockjs_cowboy_handler, State, []} ],
+   Routes = [
+        {"/sockjs/[...]", sockjs_cowboy_handler, State},
+        {"/",      cowboy_static, {priv_file, tinyconnect, "dist/index.html"}},
+        {"/[...]", cowboy_static, {priv_dir, tinyconnect, "dist"}}
+   ],
 
    Dispatch = cowboy_router:compile([{'_', Routes}]),
 
-   {ok, _} = cowboy:start_http(http, 100, [{port, 6999}], [{env, [{dispatch, Dispatch}]}]),
+   Args = [http, 100, [{port, 6999}], [{env, [{dispatch, Dispatch}]}]],
+
+	{ok, _} = apply(cowboy, start_http, Args),
 
    supervisor:start_link({local, tinyconnect}, tinyconnect, []).
 
@@ -30,7 +38,16 @@ init([])   ->
 
       #{ id => tinyconnect_tty_sup
        , start => {tinyconnect_tty_sup, start_link, []}
-       , type  => supervisor
+      },
+
+      #{ id => tinyconnect_tty_ports
+       , start => {tinyconnect_tty_ports, start_link, []}
+       , type  => worker
       }
 
    ]}}.
+
+main(_) ->
+   application:ensure_all_started(tinyconnect),
+   receive stop -> ok end.
+

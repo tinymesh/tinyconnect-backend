@@ -7,20 +7,27 @@
    , ensure/2
 ]).
 
-identify(Port) -> identify(Port, <<>>, 10).
+identify(Port) -> identify(Port, <<>>, 6).
 
 identify(_Port, _Acc, 0) -> {error, timeout};
 identify(Port, Acc, N) ->
    ok = gen_serial:bsend(Port, <<10, 0, 0, 0, 0, 0, 3, 16, 0, 0>>, 1000),
-   {ok, {Packet, Rest}} = collect(Port, Acc),
+	case collect(Port, Acc) of
+   	{ok, {Packet, Rest}} ->
+			case Packet of
+				<<35, SID:32, UID:32, _:56, 2, 18, _:16, NID:32, _/binary>> ->
+					gen_serial:bsend(Port, <<6>>, 1000),
+					{ok, {NID, SID, UID}};
 
-   case Packet of
-      <<35, SID:32, UID:32, _:56, 2, 18, _:16, NID:32, _/binary>> ->
-         {ok, {NID, SID, UID}};
+				_ ->
+					gen_serial:bsend(Port, <<6>>, 1000),
+					identify(Port, Rest, N - 1)
+			end;
 
-      _ ->
-         identify(Port, Rest, N - 1)
-   end.
+		{error, timeout} ->
+			{error, timeout}
+	end.
+
 
 collect(Port, Acc) ->
    receive
