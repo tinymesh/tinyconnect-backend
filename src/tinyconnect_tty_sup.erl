@@ -24,26 +24,26 @@ start_port(Path) ->
    },
 
    case supervisor:start_child(?MODULE,  ChildSpec) of
-		{ok, _} = Res ->
-			Res;
+      {ok, _} = Res ->
+         Res;
 
-		{error, {{bad_return_value, {error, Err}}, _}} ->
-			{error, Err}
-	end.
+      {error, {{bad_return_value, {error, Err}}, _}} ->
+         {error, Err}
+   end.
 
 stop_port(Path) ->
-	Path2 = binary_to_atom(Path, utf8),
+   Path2 = binary_to_atom(Path, utf8),
 
-	case lists:filter(fun({P, _, _, _}) -> P =:= Path2
-		end, supervisor:which_children(?MODULE)) of
+   case lists:filter(fun({P, _, _, _}) -> P =:= Path2
+      end, supervisor:which_children(?MODULE)) of
 
-		[] ->
-			{error, notfound};
+      [] ->
+         {error, notfound};
 
-		[{ID, undefined, _, _}] ->
-			ok = supervisor:delete_child(?MODULE, ID);
+      [{ID, undefined, _, _}] ->
+         ok = supervisor:delete_child(?MODULE, ID);
 
-		[{ID, Pid, _, _}] ->
-			ok = tinyconnect_tty:stop(Pid),
-			ok = supervisor:delete_child(?MODULE, ID)
-	end.
+      [{ID, Pid, _, _}] ->
+         ok = tinyconnect_tty:stop(Pid),
+         ok = supervisor:delete_child(?MODULE, ID)
+   end.

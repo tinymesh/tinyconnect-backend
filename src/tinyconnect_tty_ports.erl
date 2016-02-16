@@ -35,7 +35,7 @@ init(_) ->
 
 handle_call(get, _From, State) -> {reply, {ok, State}, State};
 handle_call({get, ID}, _From, State) when is_binary(ID) ->
-	handle_call({get, binary_to_atom(ID, utf8)}, _From, State);
+   handle_call({get, binary_to_atom(ID, utf8)}, _From, State);
 handle_call({get, ID}, _From, State) ->
    case lists:filter(
       fun(#{id := Match}) when Match =:= ID -> true;
@@ -46,7 +46,7 @@ handle_call({get, ID}, _From, State) ->
    end;
 
 handle_call({update, PortID, Patch}, _From, State) when is_binary(PortID) ->
-	handle_call({update, binary_to_atom(PortID, utf8), Patch}, _From, State);
+   handle_call({update, binary_to_atom(PortID, utf8), Patch}, _From, State);
 handle_call({update, PortID, Patch}, _From, State) ->
    NewState = lists:map(
       fun(#{id := Match} = Item) when Match =:= PortID ->
@@ -102,43 +102,43 @@ listports(Ports) ->
                   , uid  => nil
                },
 
-					case lists:filter(fun(#{id := M}) -> ID =:= M end, Ports) of
-						[] -> Default;
-						[E] -> E
-					end
+               case lists:filter(fun(#{id := M}) -> ID =:= M end, Ports) of
+                  [] -> Default;
+                  [E] -> E
+               end
             end, filelib:wildcard("/dev/serial/by-id/*")),
          {ok, NewPorts};
 
-		{win32, nt} ->
-			Buf = iolist_to_binary(os:cmd("wmic path Win32_PnPEntity WHERE \"Name LIKE '%USB Serial Port%'\" GET DeviceID,Name")),
-			case binary:split(Buf, [<<"\n">>, <<"\r">>], [global, trim_all]) of
-				[] -> {ok, []};
-				[_Head] -> {ok, []};
-				[Head | Rest] ->
-					Keys = re:split(Head, "[ ]{2,}", [trim]),
-					Res = lists:map(fun(Line) ->
-						Vals = re:split(Line, "[ ]{2,}", [trim]),
-						#{<<"Name">> := Name} = maps:from_list(lists:zip(Keys, Vals)),
-						[_, ID] = binary:split(Name, [<<"(">>, <<")">>], [global, trim]),
-						ID2 = binary_to_atom(ID, utf8),
+      {win32, nt} ->
+         Buf = iolist_to_binary(os:cmd("wmic path Win32_PnPEntity WHERE \"Name LIKE '%USB Serial Port%'\" GET DeviceID,Name")),
+         case binary:split(Buf, [<<"\n">>, <<"\r">>], [global, trim_all]) of
+            [] -> {ok, []};
+            [_Head] -> {ok, []};
+            [Head | Rest] ->
+               Keys = re:split(Head, "[ ]{2,}", [trim]),
+               Res = lists:map(fun(Line) ->
+                  Vals = re:split(Line, "[ ]{2,}", [trim]),
+                  #{<<"Name">> := Name} = maps:from_list(lists:zip(Keys, Vals)),
+                  [_, ID] = binary:split(Name, [<<"(">>, <<")">>], [global, trim]),
+                  ID2 = binary_to_atom(ID, utf8),
 
-						Default = #{
-							  id => ID2
-							, path => ID
-							, name => Name
-							, uart => false
-							, conn => false
-							, nid  => nil
-							, sid  => nil
-							, uid  => nil
-						},
+                  Default = #{
+                       id => ID2
+                     , path => ID
+                     , name => Name
+                     , uart => false
+                     , conn => false
+                     , nid  => nil
+                     , sid  => nil
+                     , uid  => nil
+                  },
 
-						case lists:filter(fun(#{id := M}) -> ID2 =:= M end, Ports) of
-							[] -> Default;
-							[E] -> E
-						end
-					end, Rest),
+                  case lists:filter(fun(#{id := M}) -> ID2 =:= M end, Ports) of
+                     [] -> Default;
+                     [E] -> E
+                  end
+               end, Rest),
 
-					{ok, Res}
-			end
+               {ok, Res}
+         end
    end.

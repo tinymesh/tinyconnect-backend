@@ -23,7 +23,7 @@ start(_, _) ->
 
    Args = [http, 100, [{port, 6999}], [{env, [{dispatch, Dispatch}]}]],
 
-	{ok, _} = apply(cowboy, start_http, Args),
+   {ok, _} = apply(cowboy, start_http, Args),
 
    supervisor:start_link({local, tinyconnect}, tinyconnect, []).
 

@@ -50,43 +50,43 @@ init([Path]) ->
    PortID = binary_to_atom(filename:basename(Path), utf8),
    Opts = [{active, once}, {packet, none}, {baud, 19200}, {flow_control, none}],
 
-	case gen_serial:open(Path2, Opts) of
-   	{ok, Port} ->
-			case tinyconnect_config:identify(Port, {PortID, undefined}) of
-				{error, timeout} ->
+   case gen_serial:open(Path2, Opts) of
+      {ok, Port} ->
+         case tinyconnect_config:identify(Port, {PortID, undefined}) of
+            {error, timeout} ->
                _ = gen_serial:close(Port),
-					{error, 'identify-timeout'};
+               {error, 'identify-timeout'};
 
-				{ok, {0, _SID, _UID}} ->
+            {ok, {0, _SID, _UID}} ->
                _ = gen_serial:close(Port),
-					{error, nid};
+               {error, nid};
 
-				{ok, {NID, SID, UID}} ->
-					io:format("tty[~p]: connected ~p~n", [self(), {NID, SID, UID}]),
+            {ok, {NID, SID, UID}} ->
+               io:format("tty[~p]: connected ~p~n", [self(), {NID, SID, UID}]),
 
-					B64NID = integer_to_binary(NID, 36),
+               B64NID = integer_to_binary(NID, 36),
 
-					ok = maybe_create_pg2_group(<<"nid:",  B64NID/binary>>),
-					ok = maybe_create_pg2_group(<<"port:", (atom_to_binary(PortID, utf8))/binary>>),
+               ok = maybe_create_pg2_group(<<"nid:",  B64NID/binary>>),
+               ok = maybe_create_pg2_group(<<"port:", (atom_to_binary(PortID, utf8))/binary>>),
 
-					{ok, Conn} = tinyconnect_tcp:start_link(B64NID, PortID),
+               {ok, Conn} = tinyconnect_tcp:start_link(B64NID, PortID),
 
-					ok = tinyconnect_tty_ports:update(PortID, #{uart => true
-																		 , nid => B64NID
-																		 , sid => SID
-																		 , uid => UID}),
+               ok = tinyconnect_tty_ports:update(PortID, #{uart => true
+                                                       , nid => B64NID
+                                                       , sid => SID
+                                                       , uid => UID}),
 
-					{ok, #{
-						  port => Port
-						, id => PortID
-						, path => Path
-						, rest => <<>>
-						, nid => B64NID
-						, sid => SID
-						, uid => UID
-						, conn => Conn
-					}}
-			end;
+               {ok, #{
+                    port => Port
+                  , id => PortID
+                  , path => Path
+                  , rest => <<>>
+                  , nid => B64NID
+                  , sid => SID
+                  , uid => UID
+                  , conn => Conn
+               }}
+         end;
 
       {error, {exit, {signal, 11}}} ->
          {error, eaccess};
@@ -137,9 +137,9 @@ handle_info({bus, {_PID, {PortID, _NID}, downstream}, _Buf}, #{id := PortID} = S
 
 
 terminate(_Reason, #{port := Port, id := PortID, conn := Conn}) ->
-  	_ = gen_serial:close(Port, 1000),
+     _ = gen_serial:close(Port, 1000),
    ok = tinyconnect_tty_ports:update(PortID, #{uart => false}),
-	ok = gen_server:call(Conn, stop).
+   ok = gen_server:call(Conn, stop).
 
 code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
 

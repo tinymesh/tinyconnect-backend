@@ -20,11 +20,11 @@ init([NID, PortID]) ->
    Opts = [binary, {packet, raw}],
    case gen_tcp:connect("tcp.cloud-ng.tiny-mesh.com", 7001, Opts) of
       {ok, Socket} ->
-			io:format("conn[~p]: connected ~p~n", [self(), Socket]),
+         io:format("conn[~p]: connected ~p~n", [self(), Socket]),
          ok = maybe_create_pg2_group(NID),
          ok = maybe_create_pg2_group(<<"port:", (atom_to_binary(PortID, utf8))/binary>>),
 
-   		ok = tinyconnect_tty_ports:update(PortID, #{conn => true}),
+         ok = tinyconnect_tty_ports:update(PortID, #{conn => true}),
 
          {ok, #{
               sock => Socket

@@ -25,7 +25,7 @@ handle(Conn, init, State) ->
 
 handle(_Conn, closed, State) ->
    io:format("sockjs: closed~n"),
-   {stop, State};
+   {ok, State};
 
 handle(Conn, {recv, Ev}, State) ->
    case 'Elixir.Poison':decode(Ev) of
@@ -44,7 +44,7 @@ loop(Conn) ->
    receive
       {ports, NewPorts} ->
          send(#{ev => <<"uart-list">>, data => NewPorts}, Conn),
-			loop(Conn)
+         loop(Conn)
    end.
 
 send(#{<<"ev">> := Ev} = Req, Conn) ->
@@ -121,54 +121,54 @@ handle_req(Conn, #{<<"ev">> := <<"connect-device">>, <<"data">> := #{<<"id">> :=
    end;
 
 handle_req(Conn, #{<<"ev">> := <<"subscribe">>,
-						 <<"data">> := #{<<"id">> := PortID}} = Req, State) ->
+                   <<"data">> := #{<<"id">> := PortID}} = Req, State) ->
 
    #{<<"ref">> := Ref} = Req,
 
-	spawn_monitor(fun() ->
-		receive X -> io:format("diiieeee? ~p~n", [X]) end
-	end),
+   spawn_monitor(fun() ->
+      receive X -> io:format("diiieeee? ~p~n", [X]) end
+   end),
 
    case tinyconnect_tty_ports:get(PortID) of
       {ok, #{nid := NID}} ->
-			PortID2 = binary_to_atom(PortID, utf8),
+         PortID2 = binary_to_atom(PortID, utf8),
 
-			{Parent, RetRef} = {self(), make_ref()},
-			{Child, MonRef} = spawn_monitor(fun() ->
-				true = link(Parent),
-				_ = pg2:create(<<"port:", PortID/binary>>),
-				ok = pg2:join(<<"port:", PortID/binary>>, self()),
+         {Parent, RetRef} = {self(), make_ref()},
+         {Child, MonRef} = spawn_monitor(fun() ->
+            true = link(Parent),
+            _ = pg2:create(<<"port:", PortID/binary>>),
+            ok = pg2:join(<<"port:", PortID/binary>>, self()),
 
-				case NID of
-					nil -> ok;
-					NID ->
-						_ = pg2:create(NID),
-						ok = pg2:join(NID, self())
-				end,
+            case NID of
+               nil -> ok;
+               NID ->
+                  _ = pg2:create(NID),
+                  ok = pg2:join(NID, self())
+            end,
 
-				Parent ! {RetRef, ok},
+            Parent ! {RetRef, ok},
 
-				loop_data(Conn, PortID2, NID)
-			end),
+            loop_data(Conn, PortID2, NID)
+         end),
 
-			receive
-				{RetRef, ok} ->
-					Resp = #{<<"ref">>    => Ref,
-								<<"ev">>     => <<"subscribe">>,
-								<<"status">> => <<"ok">>},
+         receive
+            {RetRef, ok} ->
+               Resp = #{<<"ref">>    => Ref,
+                        <<"ev">>     => <<"subscribe">>,
+                        <<"status">> => <<"ok">>},
 
-					true = link(Child),
-					ok = send(Resp, Conn),
-					{ok, State};
+               true = link(Child),
+               ok = send(Resp, Conn),
+               {ok, State};
 
-				{'DOWN', MonRef, process, Child, _} ->
-					Resp = #{<<"ref">>    => Ref,
-								<<"ev">>     => <<"subscribe">>,
-								<<"status">> => <<"error">>},
+            {'DOWN', MonRef, process, Child, _} ->
+               Resp = #{<<"ref">>    => Ref,
+                        <<"ev">>     => <<"subscribe">>,
+                        <<"status">> => <<"error">>},
 
-					ok = send(Resp, Conn),
-         		{ok, State}
-			end;
+               ok = send(Resp, Conn),
+               {ok, State}
+         end;
 
       {error, notfound} ->
          Resp = #{<<"ref">>    => Ref,
@@ -180,38 +180,38 @@ handle_req(Conn, #{<<"ev">> := <<"subscribe">>,
    end.
 
 loop_data(Conn, PortID, NID) ->
-	receive
-		{bus, {_PID, {PortID, NewNID}, Chan}, Buf} when NID =:= nil->
-			_ = pg2:create(NewNID),
-			ok = pg2:join(NewNID, self()),
+   receive
+      {bus, {_PID, {PortID, NewNID}, Chan}, Buf} when NID =:= nil->
+         _ = pg2:create(NewNID),
+         ok = pg2:join(NewNID, self()),
 
-			io:format("data[~p] -> ~p -> ~p~n", [NID, Chan, Buf]),
+         io:format("data[~p] -> ~p -> ~p~n", [NID, Chan, Buf]),
 
-			send(#{
-				ev => <<"data">>,
-				data => base64:encode(Buf),
-				port => PortID,
-				channel => Chan,
-				timestamp => millis()
-			}, Conn),
+         send(#{
+            ev => <<"data">>,
+            data => base64:encode(Buf),
+            port => PortID,
+            channel => Chan,
+            timestamp => millis()
+         }, Conn),
 
-			loop_data(Conn, PortID, NewNID);
+         loop_data(Conn, PortID, NewNID);
 
-		{bus, {_PID, {MatchPortID, MatchNID}, Chan}, Buf} when PortID =:= MatchPortID; NID =:= MatchNID ->
-			io:format("data[~p] -> ~p -> ~p~n", [NID, Chan, Buf]),
-			send(#{
-				ev => <<"data">>,
-				data => base64:encode(Buf),
-				port => PortID,
-				channel => Chan,
-				timestamp => millis()
-			}, Conn),
+      {bus, {_PID, {MatchPortID, MatchNID}, Chan}, Buf} when PortID =:= MatchPortID; NID =:= MatchNID ->
+         io:format("data[~p] -> ~p -> ~p~n", [NID, Chan, Buf]),
+         send(#{
+            ev => <<"data">>,
+            data => base64:encode(Buf),
+            port => PortID,
+            channel => Chan,
+            timestamp => millis()
+         }, Conn),
 
-			loop_data(Conn, PortID, NID);
+         loop_data(Conn, PortID, NID);
 
-		X ->
-			io:format("got random ev[~p]: ~p~n", [NID, X]),
-			loop_data(Conn, PortID, NID)
-	end.
+      X ->
+         io:format("got random ev[~p]: ~p~n", [NID, X]),
+         loop_data(Conn, PortID, NID)
+   end.
 
 millis() -> erlang:system_time() div 1000000.
