@@ -1,11 +1,22 @@
 #!/bin/sh
 
-if [ "win32" != "$1"] && [ "win64" != "$1" ]; then
+if [ "win32" != "$1" ] && [ "win64" != "$1" ]; then
 	echo "usage: $0 <win32|win64>"
 	exit 1
 fi
 
+REDIST=
+
+if [ "win32" == "$1" ]; then
+	REDIST=vcredist_x86.exe
+	REDIST_REM=https://download.microsoft.com/download/2/E/6/2E61CFA4-993B-4DD4-91DA-3737CD5CD6E3/vcredist_x86.exe
+elif [ "win64" == "$1" ]; then
+	REDIST=vcredist_x64.exe
+	REDIST_REM=https://download.microsoft.com/download/2/E/6/2E61CFA4-993B-4DD4-91DA-3737CD5CD6E3/vcredist_x64.exe
+fi
+
 CACHEDIR=./_cache
+REDIST_CACHE="$CACHEDIR/$(echo "$REDIST_REM" | shasum | awk '{print $1}')"
 
 mkdir -p "$CACHEDIR"
 
@@ -13,6 +24,9 @@ url=${s7ZIP_SFX:-"http://7zsfx.info/files/7zsd_150_2712.7z"}
 cache="$CACHEDIR/$(echo "$url" | shasum | awk '{print $1}')"
 echo " :: downloading $file"
 curl -z "$cache" -o "$cache" "$url"
+
+echo " :: downloading $REDIST"
+curl -z "$REDIST_CACHE" -o "$REDIST_CACHE" "$REDIST_REM"
 
 echo "e5a2a05997553cde6318149951da1e449b0fd277a6e671ac06bfde8572754739 $cache" | sha256sum -c - || {
 	echo "ERROR: Checksum mismatch!!!!!" >&2; exit 2; }
@@ -30,6 +44,8 @@ xcopy "erts-7.2.1" "%APPDIR%\\erts-7.2.1" /E /C /Y
 xcopy "lib" "%APPDIR%\\lib" /E /C /Y
 xcopy "releases" "%APPDIR%\\releases" /E /C /Y
 copy "tinyconnect.bat" "%APPDIR%\\tinyconnect.bat"
+
+"$REDIST"
 
 set SCRIPT="%TEMP%\\tinyconnect-$vsn-%RANDOM%-%RANDOM%-%RANDOM%-%RANDOM%-%RANDOM%.vbs"
 
@@ -56,6 +72,8 @@ RunProgram="setup.bat"
 ;!@InstallEnd@!
 
 EOF
+
+cp "$REDIST_CACHE" target/$1/$REDIST
 
 
 rm -rf "target/$1/setup.7z"
