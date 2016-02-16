@@ -13,7 +13,7 @@ identify(_Port, _Acc, 0) -> {error, timeout};
 identify(Port, Acc, N) ->
    ok = gen_serial:bsend(Port, <<10, 0, 0, 0, 0, 0, 3, 16, 0, 0>>, 1000),
 	case collect(Port, Acc) of
-   	{ok, {Packet, Rest}} ->
+		{ok, {Packet, Rest}} ->
 			case Packet of
 				<<35, SID:32, UID:32, _:56, 2, 18, _:16, NID:32, _/binary>> ->
 					gen_serial:bsend(Port, <<6>>, 1000),
@@ -25,7 +25,8 @@ identify(Port, Acc, N) ->
 			end;
 
 		{error, timeout} ->
-			{error, timeout}
+			gen_serial:bsend(Port, <<6>>, 1000),
+			identify(Port, <<>>, N - 1)
 	end.
 
 
