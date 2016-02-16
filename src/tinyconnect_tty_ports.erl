@@ -34,6 +34,8 @@ init(_) ->
    {ok, []}.
 
 handle_call(get, _From, State) -> {reply, {ok, State}, State};
+handle_call({get, ID}, _From, State) when is_binary(ID) ->
+	handle_call({get, binary_to_atom(ID, utf8)}, _From, State);
 handle_call({get, ID}, _From, State) ->
    case lists:filter(
       fun(#{id := Match}) when Match =:= ID -> true;
@@ -43,21 +45,18 @@ handle_call({get, ID}, _From, State) ->
       [] -> {reply, {error, notfound}, State}
    end;
 
-handle_call({update, ID, Patch}, _From, State) ->
+handle_call({update, PortID, Patch}, _From, State) when is_binary(PortID) ->
+	handle_call({update, binary_to_atom(PortID, utf8), Patch}, _From, State);
+handle_call({update, PortID, Patch}, _From, State) ->
    NewState = lists:map(
-      fun(#{path := Match} = Item) when Match =:= ID ->
+      fun(#{id := Match} = Item) when Match =:= PortID ->
             maps:merge(Item, Patch);
          (Item) -> Item
       end, State),
 
    case NewState =/= State of
-      true  ->
-			io:format("shipping new state (~s)~n", [ID]),
-			updated(NewState);
-
-      false ->
-			io:format("not sending cstate (~s)~n", [ID]),
-			ok
+      true  -> updated(NewState);
+      false -> ok
    end,
 
    {reply, ok, NewState};
@@ -81,10 +80,7 @@ handle_info(refresh, OldPorts) ->
    end.
 
 updated(NewPorts) ->
-   lists:foreach(fun(E) ->
-		io:format("ship ports ~p -> ~p~n", [self(), E]),
-		E ! {ports, NewPorts}
-	end, pg2:get_members(?group)).
+   lists:foreach(fun(E) -> E ! {ports, NewPorts} end, pg2:get_members(?group)).
 
 terminate(_Reason, _State) -> ok.
 
@@ -96,7 +92,7 @@ listports(Ports) ->
          NewPorts = lists:map(
             fun(Path) ->
                Default = #{
-                    id   => ID = list_to_binary(filename:basename(Path))
+                    id   => ID = list_to_atom(filename:basename(Path))
                   , path => list_to_binary(Path)
                   , name => list_to_binary(Path)
                   , conn => false
@@ -124,9 +120,10 @@ listports(Ports) ->
 						Vals = re:split(Line, "[ ]{2,}", [trim]),
 						#{<<"Name">> := Name} = maps:from_list(lists:zip(Keys, Vals)),
 						[_, ID] = binary:split(Name, [<<"(">>, <<")">>], [global, trim]),
+						ID2 = binary_to_atom(ID, utf8),
 
 						Default = #{
-							  id => ID
+							  id => ID2
 							, path => ID
 							, name => Name
 							, uart => false
@@ -136,7 +133,7 @@ listports(Ports) ->
 							, uid  => nil
 						},
 
-						case lists:filter(fun(#{id := M}) -> ID =:= M end, Ports) of
+						case lists:filter(fun(#{id := M}) -> ID2 =:= M end, Ports) of
 							[] -> Default;
 							[E] -> E
 						end

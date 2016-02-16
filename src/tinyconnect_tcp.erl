@@ -12,23 +12,24 @@
    , code_change/3
 ]).
 
-start_link(NID, Path) ->
+start_link(NID, PortID) ->
    RegName = binary_to_atom(<<"upstream:", NID/binary>>, utf8),
-   gen_server:start_link({local, RegName}, ?MODULE, [NID, Path], []).
+   gen_server:start_link({local, RegName}, ?MODULE, [NID, PortID], []).
 
-init([NID, Path]) ->
+init([NID, PortID]) ->
    Opts = [binary, {packet, raw}],
    case gen_tcp:connect("tcp.cloud-ng.tiny-mesh.com", 7001, Opts) of
       {ok, Socket} ->
 			io:format("conn[~p]: connected ~p~n", [self(), Socket]),
          ok = maybe_create_pg2_group(NID),
+         ok = maybe_create_pg2_group(<<"port:", (atom_to_binary(PortID, utf8))/binary>>),
 
-   		ok = tinyconnect_tty_ports:update(Path, #{conn => true}),
+   		ok = tinyconnect_tty_ports:update(PortID, #{conn => true}),
 
          {ok, #{
               sock => Socket
             , nid => NID
-            , path => Path
+            , id => PortID
          }};
 
       {error, _Err} = Res ->
@@ -40,22 +41,21 @@ handle_call(nil, _From, State) -> {noreply, State}.
 
 handle_cast(nil, State) -> {noreply, State}.
 
-handle_info({bus, {_PID, _NID, upstream}, _Buf}, #{} = State) ->
+handle_info({bus, {_PID, {_PortID, _NID}, upstream}, _Buf}, #{} = State) ->
    {noreply, State};
 
-handle_info({bus, {_PID, _NID, downstream}, Buf}, #{sock := Sock} = State) ->
-   io:format(" tcp/send: ~p~n", [Buf]),
+handle_info({bus, {_PID, {_PortID, _NID}, downstream}, Buf}, #{sock := Sock} = State) ->
    ok = gen_tcp:send(Sock, Buf),
    {noreply, State};
 
-handle_info({tcp, _Port, Buf}, #{nid := NID} = State) ->
-   Items = pg2:get_members(NID),
-   io:format(" tcp/recv: ~p~n", [Buf]),
-   lists:foreach(fun(PID) -> PID ! {bus, {self(), NID, upstream}, Buf} end, Items),
+handle_info({tcp, _Port, Buf}, #{nid := NID, id := PortID} = State) ->
+   Items = pg2:get_members(<<"nid:", NID/binary>>) ++ pg2:get_members(<<"port:", (atom_to_binary(PortID, utf8))/binary>>),
+   io:format("ship/tcp -> [~p] -> ~p~n", [Items, Buf]),
+   lists:foreach(fun(PID) -> PID ! {bus, {self(), {PortID, NID}, upstream}, Buf} end, Items),
    {noreply, State}.
 
-terminate(_Reason, #{sock := Sock, path := Path}) ->
-   ok = tinyconnect_tty_ports:update(Path, #{conn => false}),
+terminate(_Reason, #{sock := Sock, id := ID}) ->
+   ok = tinyconnect_tty_ports:update(ID, #{conn => false}),
    _ = gen_tcp:close(Sock).
 
 code_change(_OldVsn, _NewVsn, State) -> {ok, State}.

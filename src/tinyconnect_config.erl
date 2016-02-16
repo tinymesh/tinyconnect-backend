@@ -3,30 +3,33 @@
 % Helper functions to ensure the configuration of a module
 
 -export([
-     identify/1
+     identify/2
    , ensure/2
 ]).
 
-identify(Port) -> identify(Port, <<>>, 6).
+identify(Port, Ref) -> identify(Port, Ref, <<>>, 6).
 
-identify(_Port, _Acc, 0) -> {error, timeout};
-identify(Port, Acc, N) ->
-   ok = gen_serial:bsend(Port, <<10, 0, 0, 0, 0, 0, 3, 16, 0, 0>>, 1000),
+identify(_Port, _Ref, _Acc, 0) -> {error, timeout};
+identify(Port, {PortID, _NID} = Ref, Acc, N) ->
+	ok = send(Port, Ref, <<10, 0, 0, 0, 0, 0, 3, 16, 0, 0>>, 1000, handshake),
+
 	case collect(Port, Acc) of
 		{ok, {Packet, Rest}} ->
 			case Packet of
 				<<35, SID:32, UID:32, _:56, 2, 18, _:16, NID:32, _/binary>> ->
-					gen_serial:bsend(Port, <<6>>, 1000),
+					B64NID = integer_to_binary(NID, 36),
+					send(Port, {PortID, B64NID}, Packet, 1000),
+					send(Port, {PortID, B64NID}, <<6>>, 1000, handshake),
 					{ok, {NID, SID, UID}};
 
 				_ ->
-					gen_serial:bsend(Port, <<6>>, 1000),
-					identify(Port, Rest, N - 1)
+					send(Port, Ref, <<6>>, 1000, handshake),
+					identify(Port, Ref, Rest, N - 1)
 			end;
 
 		{error, timeout} ->
-			gen_serial:bsend(Port, <<6>>, 1000),
-			identify(Port, <<>>, N - 1)
+			send(Port, Ref, <<6>>, 1000, handshake),
+			identify(Port, Ref, <<>>, N - 1)
 	end.
 
 
@@ -151,4 +154,23 @@ wait_for_config_prompt() ->
       {data, <<">">>} -> ok
    after
       2500 -> {error, timeout}
+   end.
+
+send(Port, Ref, Buf, Timeout) -> send(Port, Ref, Buf, Timeout, downstream).
+send(Port, {PortID, NID} = Ref, Buf, Timeout, Chan) ->
+	case gen_serial:bsend(Port, Buf, Timeout) of
+		ok ->
+			Items = get_members({nid, NID}) ++ get_members({port, PortID}),
+			lists:foreach(fun(PID) -> PID ! {bus, {self(), Ref, Chan}, Buf} end, Items);
+
+		{error, _} = Err ->
+			Err
+	end.
+
+get_members({_T, undefined}) -> [];
+get_members({T, ID}) when is_atom(ID) -> get_members({T, atom_to_binary(ID, utf8)});
+get_members({T, ID}) ->
+   case pg2:get_members(<<(atom_to_binary(T, utf8))/binary, ":", ID/binary>>) of
+      {error, {no_such_group, _}} -> [];
+      Items -> Items
    end.

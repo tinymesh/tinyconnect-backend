@@ -47,35 +47,38 @@ stop(Server) -> gen_server:call(Server, stop).
 
 init([Path]) ->
    Path2 = binary_to_list(Path),
+   PortID = binary_to_atom(filename:basename(Path), utf8),
    Opts = [{active, once}, {packet, none}, {baud, 19200}, {flow_control, none}],
 
 	case gen_serial:open(Path2, Opts) of
-   	{ok, Ref} ->
-			case tinyconnect_config:identify(Ref) of
+   	{ok, Port} ->
+			case tinyconnect_config:identify(Port, {PortID, undefined}) of
 				{error, timeout} ->
-               _ = gen_serial:close(Ref),
+               _ = gen_serial:close(Port),
 					{error, 'identify-timeout'};
 
 				{ok, {0, _SID, _UID}} ->
-               _ = gen_serial:close(Ref),
-					io:format("tty[~p]: unconfigured ~p~n", [self(), Path]),
+               _ = gen_serial:close(Port),
 					{error, nid};
 
 				{ok, {NID, SID, UID}} ->
 					io:format("tty[~p]: connected ~p~n", [self(), {NID, SID, UID}]),
 
 					B64NID = integer_to_binary(NID, 36),
-					ok = maybe_create_pg2_group(B64NID),
 
-					{ok, Conn} = tinyconnect_tcp:start_link(B64NID, Path),
+					ok = maybe_create_pg2_group(<<"nid:",  B64NID/binary>>),
+					ok = maybe_create_pg2_group(<<"port:", (atom_to_binary(PortID, utf8))/binary>>),
 
-					ok = tinyconnect_tty_ports:update(Path, #{uart => true
+					{ok, Conn} = tinyconnect_tcp:start_link(B64NID, PortID),
+
+					ok = tinyconnect_tty_ports:update(PortID, #{uart => true
 																		 , nid => B64NID
 																		 , sid => SID
 																		 , uid => UID}),
 
 					{ok, #{
-						  port => Ref
+						  port => Port
+						, id => PortID
 						, path => Path
 						, rest => <<>>
 						, nid => B64NID
@@ -100,7 +103,6 @@ handle_call(steal, _from, #{port := Port} = State) ->
    {reply, {ok, Port}, State};
 
 handle_call({send, Buf}, _From, #{port := Port} = State) ->
-   io:format("uart/send: ~p~n", [Buf]),
    Reply = gen_serial:bsend(Port, [Buf], 1000),
    {reply, Reply, State};
 
@@ -110,14 +112,13 @@ handle_call(stop, _From, #{port := Port} = State) ->
 
 handle_cast(nil, State) -> {noreply, State}.
 
-handle_info({serial, Port, Buf}, #{port := Port, rest := Rest} = State) ->
+handle_info({serial, Port, Buf}, #{id := PortID, port := Port, rest := Rest} = State) ->
    NewBuf = <<Rest/binary, Buf/binary>>,
    case find_pkt(NewBuf) of
       {ok, {Packet, NewRest}} ->
-         io:format("uart/recv: ~p~n", [Packet]),
          #{nid := NID} = State,
 
-         ok = maybe_ship(NID, Packet),
+         ok = maybe_ship({PortID, NID}, Packet),
 
          {noreply, State#{rest => NewRest}};
 
@@ -125,19 +126,19 @@ handle_info({serial, Port, Buf}, #{port := Port, rest := Rest} = State) ->
          {noreply, State#{rest => NewRest}}
    end;
 
-handle_info({bus, {_PID, _NID, upstream}, Buf}, #{port := Port} = State) ->
+handle_info({bus, {_PID, {PortID, _NID}, upstream}, Buf}, #{id := PortID, port := Port} = State) ->
    ok = gen_serial:bsend(Port, [Buf], 1000),
    {noreply, State};
 
-handle_info({bus, {_PID, _NID, upstream}, _Buf}, #{} = State) ->
+handle_info({bus, {_PID, {PortID, _NID}, upstream}, _Buf}, #{id := PortID} = State) ->
    {noreply, State};
 
-handle_info({bus, {_PID, _NID, downstream}, _Buf}, State) -> {noreply, State}.
+handle_info({bus, {_PID, {PortID, _NID}, downstream}, _Buf}, #{id := PortID} = State) -> {noreply, State}.
 
 
-terminate(_Reason, #{port := Port, path := Path, conn := Conn}) ->
+terminate(_Reason, #{port := Port, id := PortID, conn := Conn}) ->
   	_ = gen_serial:close(Port, 1000),
-   ok = tinyconnect_tty_ports:update(Path, #{uart => false}),
+   ok = tinyconnect_tty_ports:update(PortID, #{uart => false}),
 	ok = gen_server:call(Conn, stop).
 
 code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
@@ -162,11 +163,13 @@ maybe_create_pg2_group(Group) ->
          ok
    end.
 
-maybe_ship(NID, Buf) ->
-   case pg2:get_members(NID) of
-      {error, {no_such_group, _}} ->
-         ok;
+maybe_ship({PortID, NID} = Ref, Buf) ->
+   Items = get_members(<<"nid:", NID/binary>>) ++ get_members(<<"port:", (atom_to_binary(PortID, utf8))/binary>>),
+   io:format("ship/tty -> [~p] -> ~p~n", [Items, Buf]),
+   lists:foreach(fun(PID) -> PID ! {bus, {self(), Ref, downstream}, Buf} end, Items).
 
-      Items ->
-         lists:foreach(fun(PID) -> PID ! {bus, {self(), NID, downstream}, Buf} end, Items)
+get_members(ID) ->
+   case pg2:get_members(ID) of
+      {error, {no_such_group, _}} -> [];
+      Items -> Items
    end.
