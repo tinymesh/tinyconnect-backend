@@ -53,9 +53,11 @@ init([Path]) ->
    	{ok, Ref} ->
 			case tinyconnect_config:identify(Ref) of
 				{error, timeout} ->
+               _ = gen_serial:close(Ref),
 					{error, 'identify-timeout'};
 
 				{ok, {0, _SID, _UID}} ->
+               _ = gen_serial:close(Ref),
 					io:format("tty[~p]: unconfigured ~p~n", [self(), Path]),
 					{error, nid};
 
@@ -83,9 +85,16 @@ init([Path]) ->
 					}}
 			end;
 
-		{error, {exit, {signal, 11}}} ->
-			{error, eaccess}
-	end.
+      {error, {exit, {signal, 11}}} ->
+         {error, eaccess};
+
+
+      {error, {_, Err}} when is_list(Err) ->
+         {error, Err};
+
+      {error, _} = Err ->
+         Err
+   end.
 
 handle_call(steal, _from, #{port := Port} = State) ->
    {reply, {ok, Port}, State};

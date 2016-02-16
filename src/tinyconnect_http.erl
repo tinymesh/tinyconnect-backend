@@ -92,11 +92,16 @@ handle_req(Conn, #{<<"ev">> := <<"connect-device">>, <<"data">> := #{<<"id">> :=
                         <<"status">> => <<"ok">>},
                ok = send(Resp, Conn);
 
-            {error, Err} when is_atom(Err) ->
+            {error, Err} when is_atom(Err); is_list(Err); is_binary(Err) ->
+               Err2 = case Err of
+                  Err when is_list(Err) -> iolist_to_binary(Err);
+                  Err -> Err
+               end,
+
                Resp = #{<<"ref">>    => Ref,
                         <<"ev">>     => <<"connect-device">>,
                         <<"status">> => <<"error">>,
-								<<"error">>  => Err},
+                        <<"error">>  => Err2},
                ok = send(Resp, Conn)
          end,
 
