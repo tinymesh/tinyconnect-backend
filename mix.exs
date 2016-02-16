@@ -14,9 +14,10 @@ defmodule Tinyconnect.Mixfile do
   def application do
     [mod: {:tinyconnect, []},
      applications: [
-      :logger,
       :cowboy,
-      :sockjs
+      :poison,
+      :sockjs,
+      :crypto
      ]
     ]
   end
@@ -24,6 +25,7 @@ defmodule Tinyconnect.Mixfile do
   defp deps do
     [
       {:cowboy, "~> 1.0.4", override: true},
+      {:poison, "~> 2.0.1"},
       {:sockjs, github: "ably-forks/sockjs-erlang"},
       {:gen_serial, github: "tomszilagyi/gen_serial", tag: "v0.2", compile: "make", app: false},
     ]
