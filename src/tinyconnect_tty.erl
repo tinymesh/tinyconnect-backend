@@ -69,23 +69,27 @@ init([Path]) ->
                ok = maybe_create_pg2_group(<<"nid:",  B64NID/binary>>),
                ok = maybe_create_pg2_group(<<"port:", (atom_to_binary(PortID, utf8))/binary>>),
 
-               {ok, Conn} = tinyconnect_tcp:start_link(B64NID, PortID),
+               case tinyconnect_tcp:start_link(B64NID, PortID) of
+                  {ok, Conn} ->
+                     ok = tinyconnect_tty_ports:update(PortID, #{uart => true
+                                                             , nid => B64NID
+                                                             , sid => SID
+                                                             , uid => UID}),
 
-               ok = tinyconnect_tty_ports:update(PortID, #{uart => true
-                                                       , nid => B64NID
-                                                       , sid => SID
-                                                       , uid => UID}),
+                     {ok, #{
+                          port => Port
+                        , id => PortID
+                        , path => Path
+                        , rest => <<>>
+                        , nid => B64NID
+                        , sid => SID
+                        , uid => UID
+                        , conn => Conn
+                     }};
 
-               {ok, #{
-                    port => Port
-                  , id => PortID
-                  , path => Path
-                  , rest => <<>>
-                  , nid => B64NID
-                  , sid => SID
-                  , uid => UID
-                  , conn => Conn
-               }}
+                  {error, _} ->
+                     {error, remote}
+               end
          end;
 
       {error, {exit, {signal, 11}}} ->

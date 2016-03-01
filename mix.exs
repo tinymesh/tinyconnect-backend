@@ -18,6 +18,9 @@ defmodule Tinyconnect.Mixfile do
       :poison,
       :sockjs,
       :crypto
+     ],
+     env: [
+       remote: 'tcp.cloud-ng.tiny-mesh.com',
      ]
     ]
   end

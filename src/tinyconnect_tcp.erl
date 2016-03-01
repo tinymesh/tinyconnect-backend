@@ -18,7 +18,11 @@ start_link(NID, PortID) ->
 
 init([NID, PortID]) ->
    Opts = [binary, {packet, raw}],
-   case gen_tcp:connect("tcp.cloud-ng.tiny-mesh.com", 7001, Opts) of
+	{Remote, Port} = case string:tokens(application:get_env(tinyconnect, remote, "tcp.cloud-ng.tiny-mesh.com:7001"), ":") of
+		[Rem] -> {Rem, 7001};
+		[Rem, PortStr] -> {Rem, list_to_integer(PortStr)}
+	end,
+   case gen_tcp:connect(Remote, Port, Opts) of
       {ok, Socket} ->
          io:format("conn[~p]: connected ~p~n", [self(), Socket]),
          ok = maybe_create_pg2_group(NID),
