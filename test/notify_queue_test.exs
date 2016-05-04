@@ -1,4 +1,4 @@
-defmodule TinyconnectPhyTest do
+defmodule NotifyQueueTest do
   use ExUnit.Case, async: true
 
   alias :notify_queue, as: Queue
