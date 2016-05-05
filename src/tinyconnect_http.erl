@@ -1,5 +1,7 @@
 -module(tinyconnect_http).
 
+% Handles the HTTP side of things
+
 -export([
      init/0
    , handle/3

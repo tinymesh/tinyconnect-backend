@@ -14,10 +14,17 @@ defmodule Tinyconnect.Mixfile do
   def application do
     [mod: {:tinyconnect, []},
      applications: [
+      :crypto,
+      :public_key,
+      :ssl,
+      :hackney,
+
       :cowboy,
       :poison,
       :sockjs,
-      :crypto
+      :crypto,
+
+      :timex
      ],
      env: [
        remote: 'tcp.cloud-ng.tiny-mesh.com',
@@ -31,6 +38,9 @@ defmodule Tinyconnect.Mixfile do
       {:poison, "~> 2.0.1"},
       {:sockjs, github: "ably-forks/sockjs-erlang"},
       {:gen_serial, github: "tomszilagyi/gen_serial", tag: "v0.2", compile: "make", app: false},
+
+      {:hackney, "~> 1.6"},
+      {:timex, "~> 2.1"}
     ]
   end
 end

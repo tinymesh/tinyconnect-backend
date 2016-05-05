@@ -8,6 +8,7 @@
    , pop/2
    , peek/1
    , clear/1
+   , forward/2
 
    , init/1
    , handle_call/3
@@ -19,7 +20,7 @@
 
 % Provides a forwarding queue for proxying events between upstream and
 % downstream connections. One adds to the queue, the queue notifies
-% the subscribers 
+% the subscriber
 
 -type data() :: binary().
 -type item() :: {binary(), data()}.
@@ -28,8 +29,9 @@
 
 -spec add(queue(), data()) -> ok.
 add(Queue, Data) ->
-   Now = erlang:system_time(),
-   gen_server:call(Queue, {add, Now, Data}).
+   Now = 'Elixir.Timex.DateTime':now(),
+   NowFmt = 'Elixir.Timex':'format!'(Now, <<"{ISO:Extended}">>),
+   gen_server:call(Queue, {add, NowFmt, Data}).
 
 -spec pop(queue(), item()) -> ok | error.
 pop(Queue, {_, _} = Data) ->
@@ -43,10 +45,27 @@ peek(Queue) ->
 clear(Queue) ->
    gen_server:call(Queue, clear).
 
+-spec forward(queue(), pid()) -> ok.
+forward(Queue, ForwardTo) ->
+   gen_server:call(Queue, {forward, ForwardTo}).
 
 -spec start_link( queue(), pid() ) -> {ok, pid()}.
 start_link(Queue, ForwardTo) ->
-   gen_server:start_link({local, Queue}, ?MODULE, [Queue, ForwardTo], []).
+   case whereis(Queue) of
+      Pid when is_pid(Pid) ->
+         Alive = is_process_alive(Pid),
+         if
+            Alive ->
+               link(Pid),
+               {ok, Pid};
+
+            true ->
+               gen_server:start_link({local, Queue}, ?MODULE, [Queue, ForwardTo], [])
+         end;
+
+      undefined ->
+         gen_server:start_link({local, Queue}, ?MODULE, [Queue, ForwardTo], [])
+   end.
 
 init([Queue, ForwardTo]) ->
    {ok, #{queue => queue:new(),
@@ -80,6 +99,9 @@ handle_call({pop, {_T, _V} = Val}, _From, #{queue := Queue} = State) ->
       {value, _Other} -> {reply, error, State};
       empty -> {reply, ok, State}
    end;
+
+handle_call({forward, ForwardTo}, _From, State) ->
+   {reply, ok, State#{forwarding => ForwardTo}};
 
 
 handle_call(clear, _From, State) ->

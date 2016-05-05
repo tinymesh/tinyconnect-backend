@@ -36,6 +36,10 @@ init([])   ->
          , period => 1000
       }, [
 
+      #{ id => queue_manager
+       , start => {queue_manager, start_link, []}
+      },
+
       #{ id => tinyconnect_tty_sup
        , start => {tinyconnect_tty_sup, start_link, []}
       },

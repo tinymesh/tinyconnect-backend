@@ -1,6 +1,8 @@
 -module(tinyconnect_tty).
 -behaviour(gen_server).
 
+% Server for working with a communication port
+
 -export([
      start_link/1
 

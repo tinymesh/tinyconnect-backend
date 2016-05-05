@@ -1,6 +1,9 @@
 -module(tinyconnect_tty_ports).
 -behaviour(gen_server).
 
+% server responsible for holding the state of different
+% communication ports
+
 -export([
      start_link/0
 
