@@ -4,7 +4,7 @@
 -export([
      start_link/2
 
-   , add/2
+   , add/2, add/3
    , pop/2
    , peek/1
    , clear/1
@@ -27,11 +27,15 @@
 -type queue() :: atom().
 
 
+utc_datetime(TS = {_, _, Micro}) ->
+    {{Year, Month, Day}, {Hour, Minute, Second}} = calendar:now_to_universal_time(TS),
+    iolist_to_binary(io_lib:format("~4w-~2..0w-~2..0wT~2w:~2..0w:~2..0w.~6..0wZ",
+		  [Year,Month,Day,Hour,Minute,Second,Micro])).
+
 -spec add(queue(), data()) -> ok.
-add(Queue, Data) ->
-   Now = 'Elixir.Timex.DateTime':now(),
-   NowFmt = 'Elixir.Timex':'format!'(Now, <<"{ISO:Extended}">>),
-   gen_server:call(Queue, {add, NowFmt, Data}).
+add(Queue, Data) -> add(Queue, Data, erlang:timestamp()).
+add(Queue, Data, When) ->
+   gen_server:call(Queue, {add, utc_datetime(When), Data}).
 
 -spec pop(queue(), item()) -> ok | error.
 pop(Queue, {_, _} = Data) ->
@@ -76,13 +80,13 @@ handle_call({add, Now, Buf}, _From, #{queue := Queue, forwarding := ForwardTo} =
    NewQueue = queue:in({Now, Buf}, Queue),
 
    Pid = if
-      is_pid(ForwardTo) -> ForwardTo;
+      is_pid(ForwardTo)  -> ForwardTo;
       is_atom(ForwardTo) -> whereis(ForwardTo)
    end,
 
    case Pid of
       undefined -> nil;
-      Pid -> Pid ! {update, maps:get(name, State)}
+      Pid -> Pid ! {'$notify_queue', {update, maps:get(name, State)}}
    end,
 
    {reply, {ok, {Now, Buf}}, State#{queue := NewQueue}};

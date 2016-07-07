@@ -5,8 +5,7 @@ defmodule Tinyconnect.Mixfile do
   def project do
     [app: :tinyconnect,
      version: @version,
-     elixir: "~> 1.0",
-     elixirc_paths: ["lib"],
+     language: :erlang,
      deps: deps
     ]
   end
@@ -20,11 +19,11 @@ defmodule Tinyconnect.Mixfile do
       :hackney,
 
       :cowboy,
-      :poison,
-      :sockjs,
       :crypto,
 
-      :timex
+      :jsx,
+      :gen_serial,
+      :tinymesh
      ],
      env: [
        remote: 'tcp.cloud-ng.tiny-mesh.com',
@@ -35,12 +34,11 @@ defmodule Tinyconnect.Mixfile do
   defp deps do
     [
       {:cowboy, "~> 1.0.4", override: true},
-      {:poison, "~> 2.0.1"},
-      {:sockjs, github: "ably-forks/sockjs-erlang"},
-      {:gen_serial, github: "tomszilagyi/gen_serial", tag: "v0.2", compile: "make", app: false},
-
+      {:jsx, "~> 2.8"},
+      {:gen_serial, github: "lafka/gen_serial", branch: "lafka-add-makefile", compile: "make", app: false},
       {:hackney, "~> 1.6"},
-      {:timex, "~> 2.1"}
+      {:tinymesh, github: "tinymesh/tm-proto-erlang"},
+      {:mock, "~> 0.1.3", only: :test}
     ]
   end
 end

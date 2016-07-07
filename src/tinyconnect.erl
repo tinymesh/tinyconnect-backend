@@ -8,16 +8,26 @@
    , stop/1
 
    , main/1
+
+   , emit/2
 ]).
 
-start(_, _) ->
 
-   State = tinyconnect_http:init(),
-   Routes = [
-        {"/sockjs/[...]", sockjs_cowboy_handler, State},
-        {"/",      cowboy_static, {priv_file, tinyconnect, "dist/index.html"}},
-        {"/[...]", cowboy_static, {priv_dir, tinyconnect, "dist"}}
+-define(OUTQUEUE, tinyconnect_out_queue).
+
+start(_, _) ->
+   Plugins = [
+      {tinyconnect_handler_uart,      [tinyconnect_handler_uart:name(),
+                                       [{subscribe, [cloudsync, uartproxy]}] ]}
+    , {tinyconnect_handler_uartproxy, [tinyconnect_handler_uartproxy:name(),
+                                       [{subscribe, [uart]},
+                                        {export_dir, "/tmp/tinyconnect/pty"}] ]}
+    , {tinyconnect_handler_queue,     [?OUTQUEUE,
+                                       [{subscribe, [{uart,      downstream},
+                                                     {uartproxy, upstream}]}] ]}
    ],
+
+   Routes = [],
 
    Dispatch = cowboy_router:compile([{'_', Routes}]),
 
@@ -25,33 +35,52 @@ start(_, _) ->
 
    {ok, _} = apply(cowboy, start_http, Args),
 
-   supervisor:start_link({local, tinyconnect}, tinyconnect, []).
+
+   supervisor:start_link({local, tinyconnect}, tinyconnect, Plugins).
 
 stop(_) -> ok.
 
-init([])   ->
-   { ok, {#{
-           strategy => one_for_one
-         , intensity => 5
-         , period => 1000
-      }, [
+init(Plugins)   ->
+   Sup = #{
+        strategy => one_for_one
+      , intensity => 5
+      , period => 1000
+   },
 
-      #{ id => queue_manager
-       , start => {queue_manager, start_link, []}
-      },
+   ChildPlugins = [
+      #{ id => Mod:name(), start => {Mod, start_link, Args} }
+      || {Mod, Args} <- Plugins],
 
-      #{ id => tinyconnect_tty_sup
-       , start => {tinyconnect_tty_sup, start_link, []}
-      },
+   % start cloud sync last
+   Children = [ #{ id => queue_manager , start => {queue_manager, start_link, []} }
+              | ChildPlugins ]
+              ++ [ #{ id => cloudsync, start => {cloudsync, start_link, [?OUTQUEUE]}} ],
 
-      #{ id => tinyconnect_tty_ports
-       , start => {tinyconnect_tty_ports, start_link, []}
-       , type  => worker
-      }
 
-   ]}}.
+   { ok, {Sup, Children}}.
 
 main(_) ->
    application:ensure_all_started(tinyconnect),
    receive stop -> ok end.
 
+
+emit({Ev, Arg}, Group) ->
+   EvID = [atom_to_binary(Group, utf8), atom_to_binary(Ev, utf8)],
+
+   case pg2:get_members(Group) of
+      {error, {no_such_group, _}} ->
+         ok;
+
+      PIDs ->
+         lists:foreach(fun(PID) -> PID ! {'$tinyconnect', EvID, Arg} end, PIDs)
+   end;
+emit(Ev, Group) when is_atom(Ev) ->
+   EvID = [atom_to_binary(Group, utf8), atom_to_binary(Ev, utf8)],
+
+   case pg2:get_members(Group) of
+      {error, {no_such_group, _}} ->
+         ok;
+
+      PIDs ->
+         lists:foreach(fun(PID) -> PID ! {'$tinyconnect', EvID} end, PIDs)
+   end.

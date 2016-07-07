@@ -24,7 +24,7 @@ defmodule TinyconnectPhyMock do
     GenServer.cast server, :stop
   end
 
-  def handle_call({:send, buf}, _from, state) do
+  def handle_call({:send, _buf}, _from, state) do
     {:reply, :ok, state}
   end
 

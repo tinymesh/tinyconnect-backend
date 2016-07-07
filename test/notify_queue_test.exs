@@ -44,7 +44,7 @@ defmodule NotifyQueueTest do
 
     buf = "test-clear"
     {:ok, item} = Queue.add q, buf
-    assert_received {:update, q}
+    assert_received {:'$notify_queue', {:update, ^q}}
     assert {:ok, {_, ^buf} = ^item} = Queue.peek q
   end
 end

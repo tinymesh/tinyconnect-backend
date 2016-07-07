@@ -1,0 +1,89 @@
+# Tinyconnect
+
+
+The application is split into one broker and multiple IO subsystems.
+
+ - Each IO handler is a gen_server that handles various top-level events.
+ - Each handler accepts a `open || close, Nid` event that MAY spawn
+   a new handler instance to handle concrete data transportation.
+ - Each handler instance accepts a `data, Buf` event
+   which the handler may act upon.
+
+
+By default there are two main handlers, `tm-cloud` and `uart`.
+In addition we have a example `uart-proxy` that allows a external
+application to communicate with a network.
+
+
+All handlers MUST handle the following incoming events:
+   - `data, Buf` - data from some external source
+   - `open` - initiates the handler and makes
+     it ready for communication
+
+The following events MUST be implemented:
+   - `opened` - emitted once the connection is ready
+   - `closed` - emitted once the connection closes down
+
+Additionally the handler MAY emit the following events:
+   - `data, Buf` - emitted once data have been received
+
+---------------------------------------------------------------------
+Definition of events by handlers
+---------------------------------------------------------------------
+Pipeline      | Receives                | Emits
+---------------------------------------------------------------------
+ uart         | *#config: opts          | uart#added: port
+              | *#discover: port        | uart#removed: port
+              |                         | uart#discovered: port
+
+ tm-cloud     | uart#discovered: port
+
+ uart-proxy   | uart#discovered: port
+              | uart#removed: port
+
+
+uart(E)       | *(E)#data: buf          | uart(E)#data: buf
+              | *(E)#open               | uart(E)#opened: port
+              | *(E)#close              | uart(E)#closed: port
+
+tm-cloud(E)   | *(E)#data: buf          | tm-cloud(E)#data: buf
+              | uart(E)#open            | tm-cloud(E)#opened: port
+              | uart(E)#close           | tm-cloud(E)#closed: port
+
+uart-proxy(E) | uart(E)#data: buf       | uart-proxy(E)#data: buf
+              | uart(E)#open            | uart-proxy(E)#opened: port
+              | uart(E)#close           | uart-proxy(E)#closed: port
+---------------------------------------------------------------------
+
+
+The following sequence of events may happend:
+
+
+   1. Tinyconnect starts the handlers `uart`, `tm-cloud`, `uart-proxy`
+   2. `uart` scans for serial ports; emits `uart#added` and `uart#discovered`
+    a. `#discovered`: `tm-cloud` when a matching config was found, prepare the cloud client
+    b. `#discovered`: `uart-proxy` creates a new PTY consumed by handler
+   3. `uart-proxy`: connects, emits `uart-proxy(E)#opened`.
+    a. `#opened -> uart(E)`: enables the uart handler, settings RTS and starting to consume data
+    b. `#opened -> tm-cloud(E)`: opens up the cloud handler
+   4. `uart-proxy`: emits `uart-proxy(E)#data` onto all of `E`s pipelines 
+    a. `uart(E)~pipe` consumes and adds to blocking to queue (call)
+    b. `tm-cloud(E)~pipe` consumes and adds to non-blocking queue
+   5. `uart`: gets some data and emits a `uart(E)#data`
+    a. `proxy-uart(E)~pipe` consumes and adds to blocking to queue (call)
+    b. `tm-cloud(E)~pipe` consumes and adds to non-blocking queue
+
+
+This allows `proxy-uart` and uart to communicate freely while
+`tm-cloud` just observes and syncs the communication upstream
+
+
+
+
+
+## Proxy uarts
+
+
+When new terminals are discovered we still need to wait for UART to be
+discovered before we can open up the proxy.
+The proxies will be created in `/tmp/uart-proxy/by-nid/{a,b,c}` or `/tmp/uart-proxy/by-path/{vtty0,vtty1,vtty2}`.

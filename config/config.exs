@@ -1,7 +1,6 @@
 use Mix.Config
 
-config :tinyconnect,
-  remote: "https://http.cloud.tiny-mesh.com/v2",
-  networks: %{}
+config :tinyconnect, :config_path, 'config/tinyconnect.cfg'
+config :tinyconnect, :rescan_interval, 5000
 
 import_config "#{Mix.env}.exs"
