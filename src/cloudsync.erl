@@ -49,11 +49,11 @@ handle_cast(sync, State) ->
    ok = flush(State),
    {noreply, State}.
 
-handle_info(uploaded, #{uplink := undefined} = State) ->
-   {noreply, State};
 handle_info(uploaded, #{uplink := Uplink,
                         stream := undefined} = State) ->
    {noreply, State#{stream => recv(Uplink)}};
+handle_info(uploaded, #{} = State) ->
+   {noreply, State};
 
 handle_info({'DOWN', MonRef, process, Pid, _}, #{stream := {Pid, MonRef}} = State) ->
    error_logger:info_msg("stream: got down: ~p", [{Pid, MonRef}]),
