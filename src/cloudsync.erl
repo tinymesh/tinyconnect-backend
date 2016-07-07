@@ -24,8 +24,11 @@ start_link(Queue) ->
    gen_server:start_link(?MODULE, [Queue], []).
 
 init([QueueName]) ->
-   {ok, File} = application:get_env(tinyconnect, config_path),
-   {ok, [Info]} = file:consult(File),
+   File = application:get_env(tinyconnect, config_path, "/etc/tinyconnect.cfg"),
+   Info = case file:consult(File) of
+      {ok, [Network|_]} -> Network;
+      {ok, []} -> undefined end,
+
    % this is how _handler_queue names queues, if you diden't know; now you do
    Queue = binary_to_atom(<<"queue#", (atom_to_binary(QueueName, utf8))/binary>>, utf8),
    {ok, _Q} = queue_manager:ensure(Queue, self()),
@@ -46,6 +49,8 @@ handle_cast(sync, State) ->
    ok = flush(State),
    {noreply, State}.
 
+handle_info(uploaded, #{uplink := undefined} = State) ->
+   {noreply, State};
 handle_info(uploaded, #{uplink := Uplink,
                         stream := undefined} = State) ->
    {noreply, State#{stream => recv(Uplink)}};
@@ -58,8 +63,6 @@ handle_info({'DOWN', _MonRef, process, _Pid, _}, #{stream := undefined} = State)
    error_logger:info_msg("stream: got down from undefined stream"),
    {noreply, State};
 
-handle_info(uploaded, #{} = State) ->
-   {noreply, State};
 
 handle_info({'$notify_queue', {update, Queue}}, #{queue := Queue} = State) ->
    io:format("notified!!!!   ~s~n", [Queue]),
@@ -95,6 +98,7 @@ flush(#{queue := Queue} = State) ->
          ok
    end.
 
+upload(_Payload, #{uplink := undefined}) -> skip;
 upload(Payload, #{uplink := #{remote := Remote,
                               auth := {token, {Fprint, Key}}}}) ->
 

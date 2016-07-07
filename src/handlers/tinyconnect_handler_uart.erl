@@ -97,7 +97,9 @@ init([Name, Opts]) ->
    ok = subscribe(lists:keyfind(subscribe, 1, Opts)),
 
    File = application:get_env(tinyconnect, config_path, "/etc/tinyconnect.cfg"),
-   {ok, [Info]} = file:consult(File),
+   Info = case file:consult(File) of
+      {ok, [Network|_]} -> Network;
+      {ok, []} -> undefined end,
 
    self() ! rescan,
 
@@ -176,6 +178,7 @@ do_rescan(#{workers := OldWorkers,
 
    NewState#{workers => NewWorkers}.
 
+autoconnect_ports(_Ports, #{network := undefined} = State) -> {ok, State};
 autoconnect_ports([], State) -> {ok, State};
 autoconnect_ports([Port|Rest],
                   #{network := #{serialport := PortID},
