@@ -96,7 +96,7 @@ init([Name, Opts]) ->
 
    ok = subscribe(lists:keyfind(subscribe, 1, Opts)),
 
-   {ok, File} = application:get_env(tinyconnect, config_path),
+   File = application:get_env(tinyconnect, config_path, "/etc/tinyconnect.cfg"),
    {ok, [Info]} = file:consult(File),
 
    self() ! rescan,
