@@ -55,17 +55,19 @@ handle_info(uploaded, #{uplink := Uplink,
 handle_info(uploaded, #{} = State) ->
    {noreply, State};
 
-handle_info({'DOWN', MonRef, process, Pid, _}, #{stream := {Pid, MonRef}} = State) ->
-   error_logger:info_msg("stream: got down: ~p", [{Pid, MonRef}]),
+handle_info({'DOWN', MonRef, process, Pid, normal}, #{stream := {Pid, MonRef}} = State) ->
    erlang:send_after(15000, self(), uploaded),
    {noreply, State#{stream => undefined}};
-handle_info({'DOWN', _MonRef, process, _Pid, _}, #{stream := undefined} = State) ->
-   error_logger:info_msg("stream: got down from undefined stream"),
+handle_info({'DOWN', MonRef, process, Pid, Reason}, #{stream := {Pid, MonRef}} = State) ->
+   error_logger:info_msg("stream: exit: ~p: ~p", [{Pid, MonRef}, Reason]),
+   erlang:send_after(15000, self(), uploaded),
+   {noreply, State#{stream => undefined}};
+handle_info({'DOWN', _MonRef, process, _Pid, R}, #{stream := undefined} = State) ->
+   error_logger:info_msg("stream: exit of undefined stream: ~p" ,[R]),
    {noreply, State};
 
 
 handle_info({'$notify_queue', {update, Queue}}, #{queue := Queue} = State) ->
-   io:format("notified!!!!   ~s~n", [Queue]),
    ok = flush(State),
    {noreply, State}.
 
@@ -102,17 +104,15 @@ upload(_Payload, #{uplink := undefined}) -> skip;
 upload(Payload, #{uplink := #{remote := Remote,
                               auth := {token, {Fprint, Key}}}}) ->
 
-   io:format("lol: ~p~n", [Payload]),
    Body = jsx:encode([Payload]),
    Sig = base64:encode(crypto:hmac(sha256, Key, ["POST\n", Remote, "\n", Body])),
    Headers = [{"Authorization", [Fprint, " ", Sig]}],
-   {ok, _Status, _Headers, Ref} = hackney:request(post, Remote, Headers, Body, []),
-
-   io:format("lol: ~p~n", [hackney:body(Ref)]),
+   {ok, _Status, _Headers, _Ref} = hackney:request(post, Remote, Headers, Body, []),
 
    ok.
 
 
+recv(undefined) -> ok;
 recv(#{remote := Remote,
        auth := {token, {Fprint, Key}}} = Network) ->
 
@@ -174,7 +174,6 @@ recvloop(Ref, recv, #{serialport := ID} = Network) ->
             recvloop(Ref, recv, Network)
          end;
 
-      {hackney_response, Ref, X} ->
-         io:format("got X: ~p~n", [X]),
+      {hackney_response, Ref, _X} ->
          ok
    end.
