@@ -132,6 +132,36 @@ defmodule UartHandlerTest do
     end
   end
 
+  # When adding a network to the config this should automatically be
+  # included in the port definition such that we can control baudrate
+  # etc...
+  test "append config to portdef" do
+    alias :tinyconnect_handler_uart, as: UART
+
+
+    {parent, ref} = {self, make_ref}
+    with_mock :gen_serial, [
+        open: fn(path2, opts) ->
+                send parent, {ref, :open, path2, opts}
+                {:ok, ref}
+              end,
+        bsend: fn(ref, [buf], _timeout) -> send parent, {ref, :send, buf}; :ok end,
+        close: fn(_ref, _timeout) ->
+          send parent, {ref, :close}
+          :ok
+        end
+    ] do
+      :application.set_env(:tinyconnect, :config_path, Path.join(__DIR__, "append-portdef-test.cfg"))
+      {:ok, uart} = UART.start_link name = :"append-portdef-cfg-test"
+
+      setports ["/dev/vtty-custom-baud"]
+      assert :ok = UART.rescan uart
+
+      {_, _, _, opts} = assert_receive {^ref, :open, '/dev/vtty-custom-baud', _opts}
+      assert 76800 = opts[:baud]
+    end
+  end
+
 #  test "identify" do
 #    alias :tinyconnect_handler_uart, as: UART
 #

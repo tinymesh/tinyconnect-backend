@@ -4,8 +4,8 @@
 % Server for working with a communication port
 
 -export([
-     start/2, start/3
-   , start_link/2 , start_link/3
+     start/2, start/3, start/4
+   , start_link/2 , start_link/3, start_link/4
 
    , send/2
 
@@ -20,14 +20,18 @@
    , code_change/3
 ]).
 
-start(Path, Callback) -> start(Path, Callback, <<>>).
-start(<<Path/binary>>, Callback, Initial) when is_function(Callback) ->
-   gen_server:start(?MODULE, [self(), Path, Callback, Initial], []).
+start(Path, Callback) -> start(Path, Callback, []).
+start(<<Path/binary>>, Callback, Opts) -> start(Path, Callback, Opts, <<>>).
+start(<<Path/binary>>, Callback, undefined, Initial) -> start(Path, Callback, [], Initial);
+start(<<Path/binary>>, Callback, Opts, Initial) when is_function(Callback) ->
+   gen_server:start(?MODULE, [self(), Path, Callback, Opts, Initial], []).
 
 
-start_link(Path, Callback) -> start_link(Path, Callback, <<>>).
-start_link(<<Path/binary>>, Callback, Initial) when is_function(Callback) ->
-   gen_server:start_link(?MODULE, [self(), Path, Callback, Initial], []).
+start_link(Path, Callback) -> start_link(Path, Callback, []).
+start_link(<<Path/binary>>, Callback, Opts) -> start_link(Path, Callback, Opts, <<>>).
+start_link(<<Path/binary>>, Callback, undefined, Initial) -> start_link(Path, Callback, [], Initial);
+start_link(<<Path/binary>>, Callback, Opts, Initial) when is_function(Callback) ->
+   gen_server:start_link(?MODULE, [self(), Path, Callback, Opts, Initial], []).
 
 send(Buf, Server) ->
    gen_server:call(Server, {send, Buf}).
@@ -35,10 +39,13 @@ send(Buf, Server) ->
 stop()       -> stop(?MODULE).
 stop(Server) -> gen_server:call(Server, stop).
 
-init([Caller, Path, Callback, Initial]) ->
+init([Caller, Path, Callback, ConnOpts, Initial]) ->
    Path2 = binary_to_list(Path),
    PortID = binary_to_atom(filename:basename(Path), utf8),
-   Opts = [{active, once}, {packet, none}, {baud, 19200}, {flow_control, none}],
+
+   Opts = orddict:merge(fun(_, _A, B) -> B end,
+                        orddict:from_list([{active, once}, {packet, none}, {baud, 19200}, {flow_control, none}]),
+                        orddict:from_list(ConnOpts)),
 
    case gen_serial:open(Path2, Opts) of
       {ok, Port} ->

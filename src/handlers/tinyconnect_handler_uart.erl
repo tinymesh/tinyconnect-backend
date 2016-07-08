@@ -97,6 +97,7 @@ init([Name, Opts]) ->
    ok = subscribe(lists:keyfind(subscribe, 1, Opts)),
 
    File = application:get_env(tinyconnect, config_path, "/etc/tinyconnect.cfg"),
+
    Info = case file:consult(File) of
       {ok, [Network|_]} -> Network;
       {ok, []} -> undefined end,
@@ -127,8 +128,19 @@ get_in_coll([#{} = H|T], {K, V}) ->
 
 
 
-uartchanges(OldPorts) ->
-   {ok, NewPorts} = listports(OldPorts),
+uartchanges(OldPorts, Network) ->
+   {ok, Ports} = listports(OldPorts),
+
+   % augment with network definition, if such exists
+   NewPorts = case Network of
+      #{serialport := PortID} ->
+         lists:map(fun
+            (#{id := ID} = Port) when PortID =:= ID -> maps:merge(Port, Network);
+            (Port) -> Port
+         end, Ports);
+
+      _ -> Ports end,
+
    Added   = lists:filter( fun(#{id := ID}) -> nil =:= get_in_coll(OldPorts, {id, ID}) end, NewPorts),
    Removed = lists:filter( fun(#{id := ID}) -> nil =:= get_in_coll(NewPorts, {id, ID}) end, OldPorts),
 
@@ -165,9 +177,10 @@ incoming(#{id := ID}, Name, _Port, Buf, N) ->
 
 do_rescan(#{workers := OldWorkers,
             ports := OldPorts,
-            name := Name} = State) ->
+            name := Name,
+            network := Network} = State) ->
 
-   {Added, Removed, NewPorts} = uartchanges(OldPorts),
+   {Added, Removed, NewPorts} = uartchanges(OldPorts, Network),
 
    #{name := Name} = State,
    ok = notify_changes({Added, Removed}, Name),
@@ -301,12 +314,13 @@ get_worker(ID, Workers) ->
       false -> {error, {notfound, {worker, ID}}}
    end.
 
-maybe_start_worker(#{id := ID, path := Path, mod := Mod}, Callback, Workers) ->
+maybe_start_worker(#{id := ID, path := Path, mod := Mod} = Port, Callback, Workers) ->
    case lists:keyfind(ID, 1, Workers) of
       {_ID, _Worker} -> Workers;
 
       false ->
-         {ok, Worker} = Mod:start_link(Path, Callback, 0),
+         Opts = maps:get(serialport_opts, Port, []),
+         {ok, Worker} = Mod:start_link(Path, Callback, Opts, 0),
          [{ID, Worker} | Workers]
    end.
 
