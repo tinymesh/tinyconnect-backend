@@ -1,7 +1,7 @@
 defmodule Tinyconnect.Mixfile do
   use Mix.Project
 
-  @version "0.3.0-alpha"
+  @version "0.4.0-alpha"
   def project do
     [app: :tinyconnect,
      version: @version,
