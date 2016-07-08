@@ -87,6 +87,51 @@ defmodule UartHandlerTest do
     end
   end
 
+  test "send ack when stored in queue" do
+    alias :tinyconnect_handler_uart, as: UART
+    alias :tinyconnect_handler_queue, as: Queue
+
+    {parent, ref} = {self, make_ref}
+    with_mock :gen_serial, [
+        open: fn(_path2, _opts) -> {:ok, ref} end,
+        bsend: fn(ref, [buf], _timeout) -> send parent, {ref, :send, buf}; :ok end,
+        close: fn(_ref, _timeout) ->
+          send parent, {ref, :close}
+          :ok
+        end
+    ] do
+
+      uname = :'ack-uart-test'
+      qname = :'ack-queue-test'
+
+      {:ok, uart} = UART.start_link   uname, subscribe: [qname]
+      {:ok, queue} = Queue.start_link qname, subscribe: [{uname, :downstream}]
+
+      setports ["/dev/vtty0"]
+      assert :ok = UART.rescan uart
+
+      assert {:error, {:notfound, {:worker, :vtty0}}} = UART.worker :vtty0, uart
+
+      :ok =  :pg2.join uname, self
+
+      assert :ok = UART.open :vtty0, uart
+
+      {:ok, {:vtty0, tty}} = UART.worker :vtty0, uart
+
+      ev = ["#{uname}", "open"]
+      assert_receive {:'$tinyconnect', ^ev, %{id: :vtty0}}
+
+      # received from tty
+      send tty, {:serial, ref, recvd = <<35,1,0,0,0,1,0,0,0,0,0,0,0,2,0,0,2,18,0,0,0,0,0,1,126,115,255,0,0,0,0,2,0,1, 56>>}
+
+      ev = ["#{uname}", "data"]
+      assert_receive {:'$tinyconnect', ^ev, %{data: ^recvd, id: :vtty0}}
+
+      # we should now get an ACK
+      assert_receive {^ref, :send, <<6>>}
+    end
+  end
+
 #  test "identify" do
 #    alias :tinyconnect_handler_uart, as: UART
 #

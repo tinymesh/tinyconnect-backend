@@ -77,8 +77,12 @@ handle_info({'$tinyconnect', [_, <<"removed">>], _Args}, State) -> {noreply, Sta
 %   {noreply, State}.
 
 data(_Ev,
-     #{data := Buf, type := Chan},
-     #{chantags := ChanTags, ctxs := Ctxs, queue := Queue} = State) ->
+     #{data := Buf, type := Chan, id := ID},
+     #{chantags := ChanTags,
+       ctxs := Ctxs,
+       queue := Queue,
+       name := Name} = State) ->
+
    Ctx = case ChanTags of
       #{Chan := ContextName} -> ContextName;
       _ -> default end,
@@ -86,6 +90,12 @@ data(_Ev,
    case deframe([{erlang:timestamp(), Buf} | maps:get(Ctx, Ctxs, [])]) of
       {ok, {When, Frame}, Rest} ->
          {ok, _} = notify_queue:add(Queue, Frame, When),
+
+         % maybe, or in this case definitely, ack...
+         tinyconnect:emit({data,
+                           #{data => <<6>>, id => ID, mod => ?MODULE, type => name()}},
+                          Name),
+
          State#{ctxs => maps:put(Ctx, Rest, Ctxs)};
 
       false ->
