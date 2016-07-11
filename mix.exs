@@ -21,13 +21,13 @@ defmodule Tinyconnect.Mixfile do
       :cowboy,
       :crypto,
 
+      :backoff,
+
       :jsx,
       :gen_serial,
       :tinymesh
      ],
-     env: [
-       remote: 'tcp.cloud-ng.tiny-mesh.com',
-     ]
+     env: []
     ]
   end
 
@@ -38,7 +38,14 @@ defmodule Tinyconnect.Mixfile do
       {:gen_serial, github: "lafka/gen_serial", branch: "lafka-add-makefile", compile: "make", app: false},
       {:hackney, "~> 1.6"},
       {:tinymesh, github: "tinymesh/tm-proto-erlang"},
-      {:mock, "~> 0.1.3", only: :test}
+      {:backoff, "~> 1.1", manager: :rebar3},
+
+      # test
+      {:mock, "~> 0.1.3", only: :test},
+
+      # dev
+      {:dialyxir, "~> 0.3.5", only: [:dev]}
+
     ]
   end
 end

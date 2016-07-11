@@ -3,7 +3,8 @@
 
 -export([
    % utilities for plugins
-     subscribe/2
+     defaultplug/1
+   , subscribe/2
    , emit/4
 
    % server API
@@ -34,6 +35,7 @@
 -type event() :: #{}.
 -type channel() :: binary().
 -type plugin() :: #{
+   channel => Name :: channel(),
    % name of plugin instance
    name => Name :: atom(),
    % what sources to subscribe to events from
@@ -59,8 +61,9 @@
 
 % some generic utilities for the plugin
 
-defaultplug() ->
+defaultplug(Channel) ->
    #{
+      channel => Channel,
       % sources to subscribe to events from
       subscribe => [],
       % opts for gen_server
@@ -136,12 +139,12 @@ start_link(#{channel := _Name} = Def) ->
    gen_server:start_link(?MODULE, Def, []).
 
 -spec init([def()]) -> {ok, pid()} | {error, term()}.
-init(#{plugins := Plugins} = Def) ->
+init(#{plugins := Plugins, channel := Channel} = Def) ->
    process_flag(trap_exit, true),
 
    NewPlugins = lists:map(fun({Mod, #{name := Name} = PlugDef}) ->
       self() ! {start, Name},
-      {Mod, undefined, maps:merge(defaultplug(), PlugDef)}
+      {Mod, undefined, maps:merge(defaultplug(Channel), PlugDef)}
    end, Plugins),
 
    {ok, Def#{plugins => NewPlugins}}.
@@ -174,9 +177,12 @@ handle_info({start, Name}, State) ->
          {noreply, NewState}
    end;
 
-handle_info({'EXIT', PID, _Reason}, #{plugins := Plugins} = State) ->
+handle_info({'EXIT', PID, Reason}, #{plugins := Plugins} = State) ->
    case lists:keyfind(PID, 2, Plugins) of
-      {Mod, PID, #{backoff := {undefined, Backoff}, name := Name} = PlugDef} ->
+      {Mod, PID, #{backoff := {undefined, Backoff}, channel := Chan, name := Name} = PlugDef} ->
+         error_logger:error_msg("plugin[~s :: ~s/~s] failed to start:~n~p~n",
+                                [Mod, Chan, Name, Reason]),
+
          {Delay, NewBackoff} = backoff:fail(Backoff),
          Timer = erlang:send_after(Delay, self(), {start, Name}),
 
@@ -185,7 +191,10 @@ handle_info({'EXIT', PID, _Reason}, #{plugins := Plugins} = State) ->
 
          {noreply, State#{plugins => NewPlugins}};
 
-      {_Mod, PID, #{backoff := {Timer, _B}}} when is_reference(Timer) ->
+      {Mod, PID, #{backoff := {Timer, _B}, channel := Chan, name := Name}} when is_reference(Timer) ->
+         error_logger:error_msg("plugin[~s :: ~s/~s] failed to start:~n~p~n",
+                                [Mod, Chan, Name, Reason]),
+
          {noreply, State};
 
       false ->
@@ -216,7 +225,7 @@ start_plugin(Name, #{plugins := Plugins, channel := Chan} = State) ->
          %   [Chan, Name, PID]),
          {started, State, plugin_start_next(Plugins)};
 
-      {Head, [{Mod, undefined, #{backoff := {Timer, Backoff}} = PluginDef} | Tail]} ->
+      {Head, [{Mod, undefined, #{backoff := {Timer, Backoff}, name := Name} = PluginDef} | Tail]} ->
          CanStart = plugin_can_start(Mod, PluginDef, Plugins),
          if CanStart ->
             case Mod:start_link(Chan, PluginDef) of
@@ -229,7 +238,10 @@ start_plugin(Name, #{plugins := Plugins, channel := Chan} = State) ->
 
                   {started, State#{plugins => NewPlugins}, plugin_start_next(NewPlugins)};
 
-               {error, _Err} ->
+               {error, Reason} ->
+                  error_logger:error_msg("plugin[~s :: ~s/~s] failed to start:~n~p~n",
+                                         [Mod, Chan, Name, Reason]),
+
                   {Delay, NewBackoff} = backoff:fail(Backoff),
                   NewTimer = erlang:send_after(Delay, self(), {start, Name}),
                   NewPluginDef = PluginDef#{backoff => {NewTimer, NewBackoff}},
