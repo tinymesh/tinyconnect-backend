@@ -5,9 +5,6 @@
 % will not be lost in case of crashes.
 % serial ports, then identifying - and possibly reconfiguring - each
 % Tinymesh capable device
-%
-% The module acts a little bit like a supervisor in the sense it
-% spawns transient worker children, but we flush them out asap.
 
 -export([
      name/1
@@ -83,7 +80,7 @@ handle_info({'$tinyconnect', Resource, #{type := data} = Ev},
       true ->
          #{data := Frame} = Ev,
          {ok, _} = notify_queue:add(Queue, Frame, maps:get(at, Ev, erlang:timestamp())),
-         tinyconnect_channel:emit([Chan, Name], State, update, #{}),
+         tinyconnect_channel:emit([Chan, Name], State, update, #{queue => Queue}),
          {noreply, State};
 
       false ->

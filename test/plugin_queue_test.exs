@@ -20,7 +20,7 @@ defmodule PluginQueueTest do
       {_,_, %{pid: pid}} = assert_receive {:'$tinyconnect', [^chan, ^plugin], %{type: :open}}
       :tinyconnect_channel.emit [chan, "mock"], %{}, :data, %{data: "hello"}
 
-      assert_receive {:'$tinyconnect', [^chan, ^plugin], %{type: :update}}
+      assert_receive {:'$tinyconnect', [^chan, ^plugin], %{type: :update, queue: ^queue}}
       assert {:ok, {_, "hello"}} = :notify_queue.peek queue
   end
 
@@ -32,6 +32,7 @@ defmodule PluginQueueTest do
       plugins = [
         {:tinyconnect_queue, %{name: plugin = 'queue',
                                queue: queue = :q2,
+                               accept: fn(_, ev) -> false != ev[:accept] end,
                                subscribe: [{chan, ["2mock"]}]}}
       ]
 
@@ -41,9 +42,12 @@ defmodule PluginQueueTest do
       assert :ok = :channel_manager.add %{channel: chan, plugins: plugins}, manager
 
       {_,_, %{pid: pid}} = assert_receive {:'$tinyconnect', [^chan, ^plugin], %{type: :open}}
-      :tinyconnect_channel.emit [chan, "2mock"], %{}, :data, %{data: "hello"}
+      :tinyconnect_channel.emit [chan, "2mock"], %{}, :data, %{data: buf = "accepted"}
 
       assert_receive {:'$tinyconnect', [^chan, ^plugin], %{type: :update}}
-      assert {:ok, {_, "hello"}} = :notify_queue.peek queue
+      assert {:ok, {_, ^buf}} = :notify_queue.peek queue
+
+      :tinyconnect_channel.emit [chan, "2mock"], %{}, :data, %{data: buf = "not-accepted", accept: false}
+      refute_receive {:'$tinyconnect', [^chan, ^plugin], %{type: :update, queue: ^queue}}
   end
 end
