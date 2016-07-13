@@ -1,4 +1,4 @@
-defmodule UartHandlerTest do
+defmodule PluginTTYTest do
   use ExUnit.Case, async: false
 
   import Mock
