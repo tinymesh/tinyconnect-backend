@@ -73,7 +73,7 @@ handle_call(name, _From, #{name := Name} = State) -> {reply, {ok, Name}, State}.
 
 handle_cast(nil, State) -> {noreply, State}.
 
-handle_info({'$tinyconnect', Resource, #{type := data} = Ev},
+handle_info({'$tinyconnect', Resource, #{data := _} = Ev},
             #{accept := Accept, queue := Queue, channel := Chan, name := Name} = State) ->
 
    case Accept(Resource, Ev) of
