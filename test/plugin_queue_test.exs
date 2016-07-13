@@ -30,7 +30,7 @@ defmodule PluginQueueTest do
       {:ok, _} = :queue_manager.ensure name, self
 
       plugins = [
-        {:tinyconnect_queue, %{name: plugin = 'queue',
+        {:tinyconnect_queue, %{name: plugin = "queue",
                                queue: queue = :q2,
                                accept: fn(_, ev) -> false != ev[:accept] end,
                                subscribe: [{chan, ["2mock"]}]}}
