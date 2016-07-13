@@ -9,6 +9,8 @@
    , peek/1
    , clear/1
    , forward/2
+   , as_list/1
+   , shift/2
 
    , init/1
    , handle_call/3
@@ -17,6 +19,8 @@
    , terminate/2
    , code_change/3
 ]).
+
+-export_type([queue/0]).
 
 % Provides a forwarding queue for proxying events between upstream and
 % downstream connections. One adds to the queue, the queue notifies
@@ -52,6 +56,14 @@ clear(Queue) ->
 -spec forward(queue(), pid()) -> ok.
 forward(Queue, ForwardTo) ->
    gen_server:call(Queue, {forward, ForwardTo}).
+
+-spec as_list(queue()) -> {ok, [item()]}.
+as_list(Queue) ->
+   gen_server:call(Queue, as_list).
+
+-spec shift(queue(), non_neg_integer()) -> ok.
+shift(Queue, N) ->
+   gen_server:call(Queue, {shift, N}).
 
 -spec start_link( queue(), pid() ) -> {ok, pid()}.
 start_link(Queue, ForwardTo) ->
@@ -107,6 +119,13 @@ handle_call({pop, {_T, _V} = Val}, _From, #{queue := Queue} = State) ->
 handle_call({forward, ForwardTo}, _From, State) ->
    {reply, ok, State#{forwarding => ForwardTo}};
 
+handle_call(as_list, _From, #{queue := Queue} = State) ->
+   Items = queue:to_list(Queue),
+   {reply, {ok, Items}, State};
+
+handle_call({shift, N}, _From, #{queue := Queue} = State) ->
+   {_, NewQueue} = queue:split(N, Queue),
+   {reply, ok, State#{queue => NewQueue}};
 
 handle_call(clear, _From, State) ->
    {reply, ok, State#{queue := queue:new()}}.
