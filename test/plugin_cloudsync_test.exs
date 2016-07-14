@@ -34,9 +34,9 @@ defmodule PluginCloudsyncTest do
 
       assert :ok = :channel_manager.add %{channel: chan, plugins: plugins}, manager
       assert_receive {:'$tinyconnect', [^chan, ^plugin], %{type: :open}}
-      :tinyconnect_channel.emit [chan, "mock"], %{}, :data, %{data: "hello"}
+      :tinyconnect_channel.emit [chan, "mock"], %{}, :data, %{data: ret = "hello"}
 
-      assert_receive {^sendref, :body, "[{\"proto/tm\":\"hello\"}]"}
+      assert_receive {^sendref, :body, "[{\"datetime\":\"undefined\",\"proto/tm\":\"aGVsbG8=\"}]"}
     end
   end
 
@@ -81,7 +81,8 @@ defmodule PluginCloudsyncTest do
 
       :tinyconnect_channel.emit [chan, "3mock"], %{}, :data, %{data: "data"}
       assert_receive {:'$tinyconnect', [^chan, ^qplugin], %{type: :update}}
-      assert_receive {^sendref, :body, "[{\"proto/tm\":\"data\"}]"}
+      {_, _, buf} = assert_receive {^sendref, :body, _some}
+      assert [%{"proto/tm" => "ZGF0YQ=="}] = :jsx.decode(buf, [:return_maps])
     end
   end
 

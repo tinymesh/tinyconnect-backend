@@ -74,6 +74,7 @@ init([Chan, #{name := Name} = Plugin]) ->
 open(#{} = Plugin) ->
    {[_|_] = Exec, Env} = find_socat(),
 
+   ok = mklinkdir(Plugin),
    Port = erlang:open_port({spawn_executable, Exec}, [
         {env, Env}
       , binary
@@ -81,6 +82,16 @@ open(#{} = Plugin) ->
       , {args, [maybe_link(<<"PTY,raw">>, Plugin), <<"-">>]}]),
 
    Plugin#{port => Port}.
+
+mklinkdir(#{link := undefined}) -> ok;
+mklinkdir(#{link := Link}) ->
+   lists:foldl(fun(Seg, Acc) ->
+      case file:make_dir(filename:join(Acc ++ [Seg])) of
+         {error, eexist} -> Acc ++ [Seg];
+         ok -> Acc ++ [Seg]
+      end
+   end, [], filename:split(filename:dirname(Link))),
+   ok.
 
 maybe_link(Arg, #{link := undefined}) -> Arg;
 maybe_link(Arg, #{link := Link}) -> <<Arg/binary, ",link=", Link/binary>>.
@@ -100,13 +111,14 @@ handle_info({'$tinyconnect', _Res, #{type := data, data := Data}},
             #{port := Port} = State) ->
    erlang:port_command(Port, Data),
    {noreply, State};
-handle_info({'$tinyconnect', _, #{} = _Ev} = X , State) ->
-   'Elixir.IO':inspect([{event, X}]),
+handle_info({'$tinyconnect', _, #{} = _Ev}, State) ->
    {noreply, State};
 
 handle_info({Port, {data, Buf}}, #{channel := Chan, name := Name, port := Port} = State) ->
    tinyconnect_channel:emit([Chan, Name], State, data, #{data => Buf}),
-   {noreply, State}.
+   {noreply, State};
+handle_info({Port, {exit_status, _} = E}, #{port := Port} = State) ->
+   {stop, E, State}.
 
 terminate(_Reason, _State) -> ok.
 

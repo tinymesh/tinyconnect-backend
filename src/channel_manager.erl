@@ -56,7 +56,19 @@ start_link(Sup) ->
    supervisor:start_link({local, Sup}, ?MODULE, []).
 
 init([]) ->
-   {ok, {#{ strategy => one_for_one }, []}}.
+   {ok, Cfg} = load(),
+   {channels, Channels} = lists:keyfind(channels, 1, Cfg),
+   Children = lists:map(fun(#{channel := Chan} = Def) ->
+      #{
+         id => Chan,
+         start => {tinyconnect_channel, start_link, [Def]},
+         type => worker,
+         restart => transient,
+         shutdown => brutal_kill
+      }
+   end, Channels),
+
+   {ok, {#{ strategy => one_for_one }, Children}}.
 
 -spec reload() -> ok | {error, Reason}
    when Reason :: file:posix()
@@ -65,11 +77,15 @@ init([]) ->
                 | system_limit
                 | {Line :: integer(), Mod :: module, Term :: term()}.
 
+load() ->
+   File = application:get_env(tinyconnect, config_path, "/etc/tinyconnect.cfg"),
+   file:consult(File).
+
 reload() -> reload(?SUP).
 reload(_Sup) ->
-   File = application:get_env(tinyconnect, config_path, "/etc/tinyconnect.cfg"),
-   case file:consult(File) of
-      {ok, _Config} -> ok;
+   case load() of
+      {ok, _Config} ->
+         ok;
       {error, _} = Err -> Err
    end.
 

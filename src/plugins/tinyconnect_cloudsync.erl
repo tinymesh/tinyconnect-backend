@@ -92,6 +92,11 @@ handle_call(name, _From, #{name := Name} = State) -> {reply, {ok, Name}, State}.
 
 handle_cast(nil, State) -> {noreply, State}.
 
+% async timers
+handle_info({cancel_timer, _Ref, _Status}, State) ->
+   {noreply, State};
+
+
 % handle normal input events, don't cache the event just assume we got
 % it going
 handle_info({'$tinyconnect',
@@ -114,6 +119,10 @@ handle_info({'$tinyconnect', _Res, _Ev}, State) -> {noreply, State};
 handle_info({flush, Queue}, State) -> flush(State, Queue);
 handle_info(recvinit, State) -> recv(State);
 
+handle_info({hackney_response, Ref, {error, {closed, _}}},
+            #{stream := Ref} = State) ->
+   {stop, normal, State};
+
 handle_info({hackney_response, Ref, {status, Status, _}},
             #{name := Name, remote := Remote, stream := Ref} = State) ->
    case State of
@@ -121,7 +130,7 @@ handle_info({hackney_response, Ref, {status, Status, _}},
          error_logger:info_msg("cloudsync[~s] connected ~s", [Name, Remote]),
          ok = cancel_timer(Timer),
          {_, NewBackoff} = backoff:succeed(Backoff),
-         {noreply, State#{recvbackoff := NewBackoff}};
+         {noreply, State#{recvbackoff := {undefined, NewBackoff}}};
 
       #{recvbackoff := {Timer, Backoff}} ->
          error_logger:info_msg("cloudsync[~s] failed to connect ~s",
@@ -225,7 +234,10 @@ cancel_timer(undefined) -> ok;
 cancel_timer(Ref) -> erlang:cancel_timer(Ref, [{async, true}]).
 
 upload(Items, #{remote := Remote, auth := {token, {FPrint, Key}}}) ->
-   Body = jsx:encode(lists:map(fun({_At, What}) -> #{<<"proto/tm">> => What} end, Items)),
+   Body = jsx:encode(lists:map(fun({At, What}) ->
+      #{<<"proto/tm">> => base64:encode(What),
+        <<"datetime">> => At}
+   end, Items)),
    Sig = base64:encode(crypto:hmac(sha256, Key, ["POST\n", Remote, "\n",  Body])),
    Headers = [{"Authorization", [FPrint, " ", Sig]}],
 

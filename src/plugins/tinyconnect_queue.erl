@@ -76,7 +76,7 @@ handle_cast(nil, State) -> {noreply, State}.
 handle_info({'$tinyconnect', Resource, #{data := _} = Ev},
             #{accept := Accept, queue := Queue, channel := Chan, name := Name} = State) ->
 
-   case Accept(Resource, Ev) of
+   case (acceptfun(Accept))(Resource, Ev) of
       true ->
          #{data := Frame} = Ev,
          {ok, _} = notify_queue:add(Queue, Frame, maps:get(at, Ev, erlang:timestamp())),
@@ -92,3 +92,6 @@ handle_info({'$tinyconnect', _, #{} = _Ev} , State) ->
 terminate(_Reason, _State) -> ok.
 
 code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
+
+acceptfun({Mod, Fun}) -> fun Mod:Fun/2;
+acceptfun(Fun) when is_function(Fun, 2) -> Fun.

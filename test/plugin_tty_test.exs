@@ -74,8 +74,9 @@ defmodule PluginTTYTest do
       assert_receive {^ref, :send, <<0>>}
 
       send pid, {:serial, ref, <<">">>}
-      assert_receive {:"$tinyconnect", [^chan, ^plugin], %{mode: :config, 
-                                                           data: <<">">>}}
+      #this is now in init/..
+      #assert_receive {:"$tinyconnect", [^chan, ^plugin], %{mode: :config, 
+      #                                                     data: <<">">>}}
       # voltage reading or whatever
       send pid, {:serial, ref, <<33>>}
       send pid, {:serial, ref, <<">">>}
@@ -117,6 +118,8 @@ defmodule PluginTTYTest do
       {_,_, %{pid: pid}} = assert_receive {:'$tinyconnect', [^chan, ^plugin], %{type: :open}}
       assert_receive {^ref, :send, <<0>>}
 
+      # this consistently takes 100ms!??!?!?! increase timeout
+      assert_receive {^ref, :send, <<10, 0, 0, 0, 0, 0, 3, 16, 0, 0>>}, 200
       send pid, {:serial, ref, @nidev}
       assert_receive {:"$tinyconnect", [^chan, ^plugin], %{mode: :protocol, 
                                                            data: @nidev}}
