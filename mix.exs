@@ -6,7 +6,8 @@ defmodule Tinyconnect.Mixfile do
     [app: :tinyconnect,
      version: @version,
      language: :erlang,
-     deps: deps
+     deps: deps,
+     dialyzer: dialyzer
     ]
   end
 
@@ -46,6 +47,12 @@ defmodule Tinyconnect.Mixfile do
       # dev
       {:dialyxir, "~> 0.3.5", only: [:dev]}
 
+    ]
+  end
+
+  defp dialyzer do
+    [
+      plt_add_deps: :transitive
     ]
   end
 end

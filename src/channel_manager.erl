@@ -136,13 +136,13 @@ remove(Chan, Sup) ->
          Err
    end.
 % ensures all plugins are running
--spec connect(Chan :: channel()) -> ok | {error, term()}.
+-spec connect(Chan :: channel()) -> ok.
 connect(Chan) -> connect(Chan, ?SUP).
 connect(_Chan, _Sup) -> ok.
 
 
 % ensures all plugins are stopped
--spec disconnect(Chan :: channel()) -> ok | {error, term}.
+-spec disconnect(Chan :: channel()) -> ok.
 disconnect(Chan) -> disconnect(Chan, ?SUP).
 disconnect(_Chan, _Sup) -> ok.
 

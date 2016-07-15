@@ -85,7 +85,7 @@ open(#{} = Plugin) ->
 
 mklinkdir(#{link := undefined}) -> ok;
 mklinkdir(#{link := Link}) ->
-   lists:foldl(fun(Seg, Acc) ->
+   _ = lists:foldl(fun(Seg, Acc) ->
       case file:make_dir(filename:join(Acc ++ [Seg])) of
          {error, eexist} -> Acc ++ [Seg];
          ok -> Acc ++ [Seg]
@@ -115,7 +115,7 @@ handle_info({'$tinyconnect', _, #{} = _Ev}, State) ->
    {noreply, State};
 
 handle_info({Port, {data, Buf}}, #{channel := Chan, name := Name, port := Port} = State) ->
-   tinyconnect_channel:emit([Chan, Name], State, data, #{data => Buf}),
+   ok = tinyconnect_channel:emit([Chan, Name], State, data, #{data => Buf}),
    {noreply, State};
 handle_info({Port, {exit_status, _} = E}, #{port := Port} = State) ->
    {stop, E, State}.

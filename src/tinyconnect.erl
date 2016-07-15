@@ -60,7 +60,7 @@ init(undefined)   ->
    { ok, {Sup, Children}}.
 
 main(_) ->
-   application:ensure_all_started(tinyconnect),
+   {ok, _} = application:ensure_all_started(tinyconnect),
    receive stop -> ok end.
 
 

@@ -150,11 +150,11 @@ handle_info({serial, Port, Buf},
       {protocol, _, {ok, {When, Frame}, NewRest}} ->
          % handle highlevel packet events
          PEv = #{data => Frame, at => When, mode => protocol},
-         tinyconnect_channel:emit([Chan, Name], State, packet, PEv),
+         ok = tinyconnect_channel:emit([Chan, Name], State, packet, PEv),
 
          % and one for regular serial data
          DEv = #{data => Buf, mode => protocol},
-         tinyconnect_channel:emit([Chan, Name], State, data, DEv),
+         ok = tinyconnect_channel:emit([Chan, Name], State, data, DEv),
 
          ok = maybe_ack(State),
          {noreply, State#{rest => NewRest}};
@@ -162,16 +162,16 @@ handle_info({serial, Port, Buf},
       % set in config mode, reset input for each prompt received
       {Mode, <<">">> = Buf, false} ->
          Ev = #{data => Buf, mode => config},
-         tinyconnect_channel:emit([Chan, Name], State, data, Ev),
+         ok = tinyconnect_channel:emit([Chan, Name], State, data, Ev),
          {noreply, State#{mode => config, rest => []}};
 
       % Escape from config or unknown mode by reset/get_nid event
       {_, _, {ok, {When, Frame}, NewRest}} ->
          PEv = #{data => Frame, at => When, mode => protocol},
-         tinyconnect_channel:emit([Chan, Name], State, packet, PEv),
+         ok = tinyconnect_channel:emit([Chan, Name], State, packet, PEv),
 
          DEv = #{data => Buf, at => When, mode => protocol},
-         tinyconnect_channel:emit([Chan, Name], State, data, DEv),
+         ok = tinyconnect_channel:emit([Chan, Name], State, data, DEv),
 
          ok = maybe_ack(State),
          case Frame of
@@ -187,7 +187,7 @@ handle_info({serial, Port, Buf},
 
       {_, Buf, false} ->
          Ev = #{data => Buf, mode => Mode},
-         tinyconnect_channel:emit([Chan, Name], State, data, Ev),
+         ok = tinyconnect_channel:emit([Chan, Name], State, data, Ev),
          {noreply, State#{mode => config, rest => Input}}
    end;
 handle_info({serial_closed, Port}, #{portref := Port} = State) ->
@@ -196,7 +196,7 @@ handle_info({serial_closed, Port}, #{portref := Port} = State) ->
 handle_info({'$tinyconnect', _Res, #{data := Buf} = _Ev}, #{portref := Port} = State) ->
    ok = gen_serial:bsend(Port, Buf, 1000),
    {noreply, State};
-handle_info({'$tinyconnect', _Res, #{}=Ev}, #{} = State) ->
+handle_info({'$tinyconnect', _Res, #{}}, #{} = State) ->
    {noreply, State}.
 
 maybe_ack(#{handshake := wait_for_ack, portref := Port}) ->

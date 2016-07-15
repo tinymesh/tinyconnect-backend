@@ -194,12 +194,12 @@ flush(State, Queue) ->
           fun(N, {Timer, Backoff}) ->
             notify_queue:shift(Queue, N),
             {_Delay, NewBackoff} = backoff:succeed(Backoff),
-            cancel_timer(Timer),
+            _ = cancel_timer(Timer),
             {undefined, NewBackoff}
           end,
           fun({Timer, Backoff}) ->
             {Delay, NewBackoff} = backoff:fail(Backoff),
-            cancel_timer(Timer),
+            _ = cancel_timer(Timer),
             NewTimer = erlang:send_after(Delay, flush, self()),
             {NewTimer, NewBackoff}
           end).
@@ -207,14 +207,14 @@ flush(State, Queue) ->
 flush2(State, Items) ->
    flush2(State, Items, fun(_, {Timer, Backoff}) ->
       {_Delay, NewBackoff} = backoff:succeed(Backoff),
-      cancel_timer(Timer),
+      _ = cancel_timer(Timer),
       {undefined, NewBackoff}
    end).
 
 flush2(State, Items, OnSuccess) ->
    flush2(State, Items, OnSuccess, fun({Timer, Backoff}) ->
       {_Delay, NewBackoff} = backoff:fail(Backoff),
-      cancel_timer(Timer),
+      _ = cancel_timer(Timer),
       {undefined, NewBackoff}
    end).
 flush2(#{sendbackoff := Backoff} = State,

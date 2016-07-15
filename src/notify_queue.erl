@@ -96,7 +96,7 @@ handle_call({add, Now, Buf}, _From, #{queue := Queue, forwarding := ForwardTo} =
       is_atom(ForwardTo) -> whereis(ForwardTo)
    end,
 
-   case Pid of
+   _ = case Pid of
       undefined -> nil;
       Pid -> Pid ! {'$notify_queue', {update, maps:get(name, State)}}
    end,

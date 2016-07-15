@@ -80,7 +80,7 @@ handle_info({'$tinyconnect', Resource, #{data := _} = Ev},
       true ->
          #{data := Frame} = Ev,
          {ok, _} = notify_queue:add(Queue, Frame, maps:get(at, Ev, erlang:timestamp())),
-         tinyconnect_channel:emit([Chan, Name], State, update, #{queue => Queue}),
+         ok = tinyconnect_channel:emit([Chan, Name], State, update, #{queue => Queue}),
          {noreply, State};
 
       false ->

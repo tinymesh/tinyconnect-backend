@@ -30,6 +30,8 @@
 
 -type eventtype() :: open
                    | close
+                   | update
+                   | packet
                    | data.
 
 -type event() :: #{}.
@@ -134,11 +136,11 @@ get(Server) -> gen_server:call(Server, get).
 -spec stop(Server :: pid()) -> ok | {error, term()}.
 stop(Server) -> gen_server:call(Server, stop).
 
--spec start_link([def()]) -> {ok, pid()} | {error, term()}.
+-spec start_link(def()) -> {ok, pid()} | {error, term()}.
 start_link(#{channel := _Name} = Def) ->
    gen_server:start_link(?MODULE, Def, []).
 
--spec init([def()]) -> {ok, pid()} | {error, term()}.
+-spec init(def()) -> {ok, def()}.
 init(#{plugins := Plugins, channel := Channel} = Def) ->
    process_flag(trap_exit, true),
 
@@ -230,8 +232,8 @@ start_plugin(Name, #{plugins := Plugins, channel := Chan} = State) ->
          if CanStart ->
             case Mod:start_link(Chan, PluginDef) of
                {ok, PID} ->
-                  if is_reference(Timer) -> erlang:cancel_timer(Timer);
-                     true -> ok end,
+                  _ = if is_reference(Timer) -> erlang:cancel_timer(Timer);
+                         true -> ok end,
                   {_Delay, NewBackoff} = backoff:succeed(Backoff),
                   NewPluginDef = PluginDef#{backoff => {undefined, NewBackoff}},
                   NewPlugins  = Head ++ [{Mod, PID, NewPluginDef} | Tail],
