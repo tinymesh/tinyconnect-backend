@@ -148,13 +148,13 @@ handle_info({serial, Port, Buf},
 
    case {Mode, Buf, deframe(Input)} of
       {protocol, _, {ok, {When, Frame}, NewRest}} ->
-         % handle highlevel packet events
-         PEv = #{data => Frame, at => When, mode => protocol},
-         ok = tinyconnect_channel:emit([Chan, Name], State, packet, PEv),
-
-         % and one for regular serial data
+         % regular serial data for everyone
          DEv = #{data => Buf, mode => protocol},
          ok = tinyconnect_channel:emit([Chan, Name], State, data, DEv),
+
+         % and highlevel packet events for those other ones
+         PEv = #{data => Frame, at => When, mode => protocol},
+         ok = tinyconnect_channel:emit([Chan, Name], State, packet, PEv),
 
          ok = maybe_ack(State),
          {noreply, State#{rest => NewRest}};
