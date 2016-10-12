@@ -47,10 +47,10 @@
 
 -define(SUP, ?MODULE).
 -define(DEFCHAN, #{
-   autoconnect => false,
-   plugins => [],
-   source => user,
-   state => stopped
+   <<"autoconnect">> => false,
+   <<"plugins">> => [],
+   <<"source">> => <<"user">>,
+   <<"state">> => <<"stopped">>
 }).
 
 start_link() -> start_link(?SUP).
@@ -103,9 +103,9 @@ map_channel({_Channel, PID, worker, [Mod]}) ->
 
 -spec add(def()) -> ok | {error, term()}.
 add(OrgDef) -> add(OrgDef, ?SUP).
-add(#{channel := ChanName} = OrgDef, Sup) ->
+add(#{<<"channel">> := ChanName} = OrgDef, Sup) ->
    Def = maps:merge(?DEFCHAN, OrgDef),
-   ChannelHandler = maps:get(channel_handler, OrgDef, tinyconnect_channel),
+   ChannelHandler = maps:get(<<"channel_handler">>, OrgDef, tinyconnect_channel2),
    case supervisor:start_child(Sup, #{
          id => ChanName,
          start => {ChannelHandler, start_link, [Def]},
@@ -162,11 +162,11 @@ disconnect(_Chan, _Sup) -> ok.
 
 
 -spec child(Chan) -> {ok, {pid(), module()}}
-                   | {error, {notfound, {channel, Chan}}}
+                   | {error, {notfound, tuple()}}
                    when Chan :: channel().
 child(Chan) -> child(Chan, ?SUP).
 child(Chan, Sup) ->
    case lists:keyfind(Chan, 1, supervisor:which_children(Sup)) of
       {Chan, PID, worker, [Mod]} -> {ok, {PID, Mod}};
-      false -> {error, {notfound, {channel, Chan}}}
+      false -> {error, {notfound, {<<"channel">>, Chan}}}
    end.

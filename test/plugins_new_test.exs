@@ -5,22 +5,22 @@ defmodule PluginsNewTest do
     {:ok, manager} = :channel_manager.start_link name
 
     {chan, chanhandler} = {"test", :tinyconnect_channel2}
-    assert :ok = :channel_manager.add %{channel: chan,
-                                        channel_handler: chanhandler}, manager
+    assert :ok = :channel_manager.add %{"channel" => chan,
+                                        "channel_handler" => chanhandler}, manager
 
     assert {:ok, {pid, ^chanhandler}} = :channel_manager.child chan, manager
-    assert %{channel: ^chan, autoconnect: false, plugins: []} = chanhandler.get pid
+    assert %{"channel" => ^chan, "autoconnect" => false, "plugins" => []} = chanhandler.get pid
 
     # Add the plugins
     plugins = [
-      %{plugin: Test.Plugin.Stateless},
-      %{plugin: Test.Plugin.GenServer},
-      %{plugin: Test.Plugin.Agent},
+      %{"plugin" => Test.Plugin.Stateless},
+      %{"plugin" => Test.Plugin.GenServer},
+      %{"plugin" => Test.Plugin.Agent},
     ]
 
-    assert {:ok, %{plugins: [_a, b, _c]}} = chanhandler.update %{plugins: plugins}, pid
+    assert {:ok, %{"plugins" => [_a, b, _c]}} = chanhandler.update %{"plugins" => plugins}, pid
     b = Map.put b, :some, :value
-    assert {:ok, %{plugins: [^b]}} = chanhandler.update %{plugins: [b]}, pid
+    assert {:ok, %{"plugins" => [^b]}} = chanhandler.update %{"plugins" => [b]}, pid
   end
 
   # test that we can use functions within the beam runtime
@@ -28,42 +28,42 @@ defmodule PluginsNewTest do
     {:ok, manager} = :channel_manager.start_link name
 
     {chan, chanhandler} = {"test", :tinyconnect_channel2}
-    assert :ok = :channel_manager.add %{channel: chan,
-                                        channel_handler: chanhandler}, manager
+    assert :ok = :channel_manager.add %{"channel" => chan,
+                                        "channel_handler" => chanhandler}, manager
 
     assert {:ok, {pid, ^chanhandler}} = :channel_manager.child chan, manager
     plugins = [
-      %{name: "forward",           plugin: &__MODULE__.forwardplugin/2},
-      %{name: "nbytes#pre",        plugin: &__MODULE__.state_nbytes/2},
-      %{name: "strip-downcase",    plugin: &__MODULE__.stateless_strip_downcase/2},
-      %{name: "nbytes#strip-down", plugin: &__MODULE__.state_nbytes/2},
-      %{name: "last#strip-down",   plugin: &__MODULE__.state_last/2},
-      %{name: "strip-upcase",      plugin: &__MODULE__.stateless_strip_upcase/2},
-      %{name: "nbytes#strip-up",   plugin: &__MODULE__.state_nbytes/2},
-      %{name: "last#strip-up",     plugin: &__MODULE__.state_last/2},
+      %{"name" => "forward",           "plugin" => &__MODULE__.forwardplugin/2},
+      %{"name" => "nbytes#pre",        "plugin" => &__MODULE__.state_nbytes/2},
+      %{"name" => "strip-downcase",    "plugin" => &__MODULE__.stateless_strip_downcase/2},
+      %{"name" => "nbytes#strip-down", "plugin" => &__MODULE__.state_nbytes/2},
+      %{"name" => "last#strip-down",   "plugin" => &__MODULE__.state_last/2},
+      %{"name" => "strip-upcase",      "plugin" => &__MODULE__.stateless_strip_upcase/2},
+      %{"name" => "nbytes#strip-up",   "plugin" => &__MODULE__.state_nbytes/2},
+      %{"name" => "last#strip-up",     "plugin" => &__MODULE__.state_last/2},
     ]
 
-    assert {:ok, %{plugins: [void|plugins]}} = chanhandler.update %{plugins: plugins}, pid
-    [%{id: nbpre},
-      %{id: dcase}, %{id: nbdcase}, %{id: lastdcase},
-      %{id: ucase}, %{id: nbucase}, %{id: lastucase}] = plugins
+    assert {:ok, %{"plugins" => [void|plugins]}} = chanhandler.update %{"plugins" => plugins}, pid
+    [%{"id" => nbpre},
+      %{"id" => dcase}, %{"id" => nbdcase}, %{"id" => lastdcase},
+      %{"id" => ucase}, %{"id" => nbucase}, %{"id" => lastucase}] = plugins
 
-    void = Map.put(void, :pipeline, [{:'*', [nbpre,
+    void = Map.put(void, "pipeline", [{:'*', [nbpre,
                                              {:'>', [dcase, nbdcase, lastdcase]},
                                              {:'>', [ucase, nbucase, lastucase]}]}])
 
-    assert {:ok, %{plugins: _updatedplugs}} = chanhandler.update %{plugins: plugins = [void|plugins]}, pid
-    assert length(plugins) == length((chanhandler.get pid)[:plugins])
+    assert {:ok, %{"plugins" => _updatedplugs}} = chanhandler.update %{"plugins" => plugins = [void|plugins]}, pid
+    assert length(plugins) == length((chanhandler.get pid)["plugins"])
 
     # this emits an event on behalf of PluginID (void[:id])
-    assert :ok = chanhandler.emit pid, void[:id], :input, <<"AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPp">>
+    assert :ok = chanhandler.emit pid, void["id"], :input, <<"AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPp">>
 
-    %{plugins: plugins} = chanhandler.get pid
-    assert %{state: 32} = Enum.find plugins, &(&1[:id] == nbpre)
-    assert %{state: "ABCDEFGHIJKLMNOP"} = Enum.find plugins, &(&1[:id] == lastdcase)
-    assert %{state: 16} = Enum.find plugins, &(&1[:id] == nbdcase)
-    assert %{state: "abcdefghijklmnop"} = Enum.find plugins, &(&1[:id] == lastucase)
-    assert %{state: 16} = Enum.find plugins, &(&1[:id] == nbucase)
+    %{"plugins" => plugins} = chanhandler.get pid
+    assert %{"state" => 32} = Enum.find plugins, &(&1["id"] == nbpre)
+    assert %{"state" => "ABCDEFGHIJKLMNOP"} = Enum.find plugins, &(&1["id"] == lastdcase)
+    assert %{"state" => 16} = Enum.find plugins, &(&1["id"] == nbdcase)
+    assert %{"state" => "abcdefghijklmnop"} = Enum.find plugins, &(&1["id"] == lastucase)
+    assert %{"state" => 16} = Enum.find plugins, &(&1["id"] == nbucase)
   end
 
   def forwardplugin({:event, :input, x, _meta}, state), do: {:emit, :input, x, state}
@@ -134,14 +134,14 @@ defmodule Test.Plugin.GenServer do
   """
   use GenServer
 
-  def handle(:name,  %{name: name}), do: {:ok, name}
+  def handle(:name,  %{"name" => name}), do: {:ok, name}
   def handle(:state, %{}), do: {:ok, :stateless}
 
   # (un)serialize the plugin definition (args used to start plugin)
   def handle({:serialize, definition}, _), do: definition
   def handle({:unserialize, definition}, _), do: definition
 
-  def handle({:start, channel, %{id: id} = definition}, :nostate) do
+  def handle({:start, channel, %{"id" => id} = definition}, :nostate) do
     GenServer.start_link __MODULE__, [channel, definition], name: {:global, id}
   end
 

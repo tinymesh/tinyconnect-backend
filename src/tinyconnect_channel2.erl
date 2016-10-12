@@ -32,22 +32,21 @@ emit(Server, Plugin, EvType, Ev) ->
    gen_server:cast(Server, {emit, Plugin, EvType, Ev}).
 
 -spec start_link(tinyconnect_channel:def()) -> {ok, pid()} | {error, term()}.
-start_link(#{channel := _Name} = Def) ->
+start_link(#{<<"channel">> := _Name} = Def) ->
    gen_server:start_link(?MODULE, Def, []).
 
 -spec init(tinyconnect_channel:def()) -> {ok, tinyconnect_channel:def()}.
-init(#{plugins := Plugins} = Def) ->
+init(#{<<"plugins">> := Plugins} = Def) ->
    process_flag(trap_exit, true),
 
    NewPlugins = lists:map(fun
-      (#{name := Name, plugin := Mod} = PlugDef) ->
+      (#{<<"name">> := Name, <<"plugin">> := Mod} = PlugDef) ->
          self() ! {start, Name},
          {Mod, undefined, PlugDef}
       end, Plugins),
 
-   {ok, Def#{ plugins => NewPlugins,
-              state => unknown,
-              pipelines => []}}.
+   {ok, Def#{ <<"plugins">> => NewPlugins,
+              <<"pipelines">> => []}}.
 
 handle_call(get, _From, State) -> '@get'(State);
 handle_call(stop, _From, State) -> '@stop'(State);
@@ -65,31 +64,33 @@ terminate(_Reason, _State) -> ok.
 code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
 
 % Implementation server API
-'@get'(#{plugins := Plugins} = State) ->
+'@get'(#{<<"plugins">> := Plugins} = State) ->
    Plugins2 = lists:map(fun serialize_plugin/1, Plugins),
-   {reply, State#{plugins => Plugins2}, State}.
+   {reply, State#{<<"plugins">> => Plugins2}, State}.
 
 '@stop'(State) ->
    % @todo 2016-10-06; loop through all plugins and stop them
    {stop, normal, ok, State}.
 
-'@update'(Data, #{plugins := _OldPlugs} = State) ->
-   {_Added, _Removed, Plugs} = partition_plugs(maps:get(plugins, Data, []), State),
+'@update'(Data, #{<<"plugins">> := _OldPlugs} = State) ->
+   {_Added, _Removed, Plugs} = partition_plugs(maps:get(<<"plugins">>, Data, []), State),
 
    %Changed = length(OldPlugs) - length(Removed) - length(Added),
 
-   Data2 = maps:put(autoconnect, Plugs, Data),
-   Data3 = maps:put(plugins, Plugs, Data2),
+   Autoconnect = maps:get(<<"autoconnect">>, Data, false),
+   Data2 = maps:put(<<"autoconnect">>, Autoconnect, Data),
+   Data3 = maps:put(<<"plugins">>, Plugs, Data2),
 
-   #{plugins := Plugins} = NewState = 'update-trigger'(maps:to_list(Data3), State),
+
+   #{<<"plugins">> := Plugins} = NewState = 'update-trigger'(maps:to_list(Data3), State),
    Plugins2 = lists:map(fun serialize_plugin/1, Plugins),
 
-   {reply, {ok, #{plugins => Plugins2}}, NewState}.
+   {reply, {ok, #{<<"plugins">> => Plugins2}}, NewState}.
 
 % Emit event `Ev` from plugin `PlugID` onto all other listeners
 % Listeners are defined in the channel itself in the form `[c1/a > c1/b, ..]`
 % `emit` can not yet send across channels, but that capability may appear in future release
-'@emit'(PlugID, EvType, Ev, #{channel := Channel} = State) ->
+'@emit'(PlugID, EvType, Ev, #{<<"channel">> := Channel} = State) ->
    case action(PlugID, {event, EvType, Ev, #{from => [Channel, PlugID]}}, State) of
       % If nothing is to be done then, do nothing
       ok ->
@@ -102,7 +103,7 @@ code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
       {ok, NewState} ->
          {noreply, NewState};
 
-      {emit, {EvType, Ev}, #{pipeline := Pipe}, NewState} ->
+      {emit, {EvType, Ev}, #{<<"pipeline">> := Pipe}, NewState} ->
          % evaluate an emit down the pipeline chain!
          Meta = #{from => [[Channel, PlugID]]},
          ForwardAction = {event, EvType, Ev, Meta},
@@ -136,7 +137,8 @@ code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
 '@emit-pipe'([{'>', []} | Rest], Action, State) ->
    '@emit-pipe'(Rest, Action,State);
 
-'@emit-pipe'([{'>', [H|T]} | Rest], {event, Type, Ev, #{from := From} = Meta} = Action, #{channel := Channel} = State) ->
+'@emit-pipe'([{'>', [H|T]} | Rest], {event, Type, Ev, #{from := From} = Meta} = Action,
+             #{<<"channel">> := Channel} = State) ->
    Meta2 = Meta#{from => From ++ [[Channel, H]]},
    Action2 = {event, Type, Ev, Meta2},
 
@@ -169,21 +171,21 @@ pipechain({event, _Type, _Ev, #{from := From}}) ->
    lists:reverse(R).
 
 % find plugin, and call action/2 on it
-action(PlugID, Action, #{channel := Channel, plugins := Plugins} = State) ->
+action(PlugID, Action, #{<<"channel">> := Channel, <<"plugins">> := Plugins} = State) ->
    case plugin_by_id(PlugID, Plugins) of
       {_Head, []} ->
-         {error, {notfound, {plugin, [Channel, PlugID]}}};
+         {error, {notfound, {<<"plugin">>, [Channel, PlugID]}}};
 
-       {Head, [{Mod, _OldPlugState, #{id := ID} = Def} = P | Tail]} ->
+       {Head, [{Mod, _OldPlugState, #{<<"id">> := ID} = Def} = P | Tail]} ->
          case call_action(P, Action) of
             % Plugin did nothing commemorable
             ok -> {ok, State};
 
             {state, _State} = NewPlugState ->
-               {ok, State#{plugins => Head ++ [{Mod, NewPlugState, Def} | Tail]}};
+               {ok, State#{<<"plugins">> => Head ++ [{Mod, NewPlugState, Def} | Tail]}};
 
             {emit, EvType, Ev, NewPlugState} ->
-               NewState = State#{plugins => Head ++ [{Mod, {state, NewPlugState}, Def} | Tail]},
+               NewState = State#{<<"plugins">> => Head ++ [{Mod, {state, NewPlugState}, Def} | Tail]},
                {emit, {EvType, Ev}, Def, NewState};
 
             X ->
@@ -208,9 +210,9 @@ call_action({Target, PlugState, PlugDef}, Action) ->
 
 'update-trigger'([], State) -> State;
 
-'update-trigger'([{plugins, Plugins} | Rest], State) ->
+'update-trigger'([{<<"plugins">>, Plugins} | Rest], State) ->
    Plugins2 = lists:map(fun(M) -> start_plugin(M, State) end, Plugins),
-   'update-trigger'(Rest, State#{plugins := Plugins2});
+   'update-trigger'(Rest, State#{<<"plugins">> => Plugins2});
 
 'update-trigger'([_ | Rest], State) -> 'update-trigger'(Rest, State).
 
@@ -219,7 +221,7 @@ serialize_plugin({_, _PlugState, PlugDef} = Plug) ->
       ok -> PlugDef;
 
       {ok, Serialized} ->
-         maps:put(state, Serialized, PlugDef);
+         maps:put(<<"state">>, Serialized, PlugDef);
 
       % optimistic approach to see if serialized is supported
       {'EXIT', {function_clause, _}} ->
@@ -227,22 +229,22 @@ serialize_plugin({_, _PlugState, PlugDef} = Plug) ->
    end.
 
 % It's a PID! maybe start the thing...
-start_plugin({_Plugin, {state, PID}, #{id := _ID} = PlugDef} = Plug, State)
+start_plugin({_Plugin, {state, PID}, #{<<"id">> := _ID} = PlugDef} = Plug, State)
       when is_pid(PID) ->
 
    case is_process_alive(PID) of
       true -> Plug;
       false -> start_plugin2(PlugDef, State)
    end;
-start_plugin({_Plugin, {state, _}, #{id := _ID}} = Plug, _State) ->
+start_plugin({_Plugin, {state, _}, #{<<"id">> := _ID}} = Plug, _State) ->
    Plug;
-start_plugin({_Plugin, undefined, #{id := _ID} = PlugDef}, State) ->
+start_plugin({_Plugin, undefined, #{<<"id">> := _ID} = PlugDef}, State) ->
    start_plugin2(PlugDef, State);
-start_plugin({_Plugin, stateless, #{id := _ID}} = Plug, _State) ->
+start_plugin({_Plugin, stateless, #{<<"id">> := _ID}} = Plug, _State) ->
    Plug.
 
-start_plugin2(PlugDef, #{channel := Channel}) ->
-   Plugin = maps:get(plugin, PlugDef),
+start_plugin2(PlugDef, #{<<"channel">> := Channel}) ->
+   Plugin = maps:get(<<"plugin">>, PlugDef),
    Handler = case Plugin of
       Fun when is_function(Fun, 2) ->
          Fun;
@@ -263,14 +265,14 @@ start_plugin2(PlugDef, #{channel := Channel}) ->
    end.
 
 % Partition-merge new plugin data into `{Added, Removed, NewPlugins}`
-partition_plugs(Plugins, #{plugins := Existing}) ->
+partition_plugs(Plugins, #{<<"plugins">> := Existing}) ->
    {Added, _, Existing2} = partition_plugs(Plugins, {[], [], Existing}),
    % find anything that is NOT in `Plugins` or `Added`
    Coll = Added ++ Plugins,
    Removed = lists:filter(fun
-      ({_, _, #{id := ID}}) ->
+      ({_, _, #{<<"id">> := ID}}) ->
          lists:all(fun
-            (#{id := EID}) -> ID =/= EID;
+            (#{<<"id">> := EID}) -> ID =/= EID;
             (#{}) -> false
          end, Coll)
    end, Existing),
@@ -279,7 +281,7 @@ partition_plugs(Plugins, #{plugins := Existing}) ->
 
 partition_plugs([], {Add, Rem, All}) -> {Add, Rem, lists:reverse(All)};
 
-partition_plugs([#{id := ID} = PlugUpdate | Rest], {Add, Rem, All} = Acc) ->
+partition_plugs([#{<<"id">> := ID} = PlugUpdate | Rest], {Add, Rem, All} = Acc) ->
    case plugin_by_id(ID, All) of
       {_, []} ->
          error_logger:error_msg("can't update a non-existing plugin: ~s", [ID]),
@@ -294,7 +296,7 @@ partition_plugs([#{id := ID} = PlugUpdate | Rest], {Add, Rem, All} = Acc) ->
 
 partition_plugs([#{} = Plug | Rest], {Add, Rem, All}) ->
    % things without a id means a new plugin!
-   Plug2 = maps:put(id, uuid:uuid(), Plug),
+   Plug2 = maps:put(<<"id">>, uuid:uuid(), Plug),
    SupDef = {undefined, undefined, Plug2},
    partition_plugs(Rest, {[SupDef | Add], Rem, [SupDef | All]}).
 
@@ -303,5 +305,5 @@ partition_plugs([#{} = Plug | Rest], {Add, Rem, All}) ->
 %  B := [P | R] when plugin P was found
 plugin_by_id(ID, Plugins) ->
    lists:splitwith(
-      fun({_Mod, _State, #{id := PlugID}}) -> ID =/= PlugID end,
+      fun({_Mod, _State, #{<<"id">> := PlugID}}) -> ID =/= PlugID end,
       Plugins).
