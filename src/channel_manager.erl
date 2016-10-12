@@ -39,6 +39,7 @@
    , remove/1, remove/2
    , connect/1, connect/2
    , disconnect/1, disconnect/2
+   , update/2, update/3
 ]).
 
 -type channel() :: tiynconnect_channel:channel().
@@ -48,7 +49,8 @@
 -define(DEFCHAN, #{
    autoconnect => false,
    plugins => [],
-   source => user
+   source => user,
+   state => stopped
 }).
 
 start_link() -> start_link(?SUP).
@@ -103,9 +105,10 @@ map_channel({_Channel, PID, worker, [Mod]}) ->
 add(OrgDef) -> add(OrgDef, ?SUP).
 add(#{channel := ChanName} = OrgDef, Sup) ->
    Def = maps:merge(?DEFCHAN, OrgDef),
+   ChannelHandler = maps:get(channel_handler, OrgDef, tinyconnect_channel),
    case supervisor:start_child(Sup, #{
          id => ChanName,
-         start => {tinyconnect_channel, start_link, [Def]},
+         start => {ChannelHandler, start_link, [Def]},
          type => worker,
          restart => transient,
          shutdown => brutal_kill
@@ -135,6 +138,17 @@ remove(Chan, Sup) ->
       {error, _} = Err ->
          Err
    end.
+
+update(Chan, Data) -> update(Chan, Data, ?SUP).
+update(Chan, Data, Sup) ->
+   case child(Chan, Sup) of
+      {error, _} = Err ->
+         Err;
+
+      {ok, {PID, Mod}} ->
+         Mod:update(Data, PID)
+   end.
+
 % ensures all plugins are running
 -spec connect(Chan :: channel()) -> ok.
 connect(Chan) -> connect(Chan, ?SUP).
