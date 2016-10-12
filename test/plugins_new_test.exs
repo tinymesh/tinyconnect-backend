@@ -48,9 +48,9 @@ defmodule PluginsNewTest do
       %{"id" => dcase}, %{"id" => nbdcase}, %{"id" => lastdcase},
       %{"id" => ucase}, %{"id" => nbucase}, %{"id" => lastucase}] = plugins
 
-    void = Map.put(void, "pipeline", [{:'*', [nbpre,
-                                             {:'>', [dcase, nbdcase, lastdcase]},
-                                             {:'>', [ucase, nbucase, lastucase]}]}])
+    void = Map.put(void, "pipeline", ["parallel", nbpre,
+                                                  ["serial", dcase, nbdcase, lastdcase],
+                                                  ["serial", ucase, nbucase, lastucase]])
 
     assert {:ok, %{"plugins" => _updatedplugs}} = chanhandler.update %{"plugins" => plugins = [void|plugins]}, pid
     assert length(plugins) == length((chanhandler.get pid)["plugins"])

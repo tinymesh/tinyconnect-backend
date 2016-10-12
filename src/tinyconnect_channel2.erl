@@ -118,27 +118,26 @@ code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
 % Emit parallel, emit onto each plugin without updating forward chain.
 % this means {:emit, ..} will apply ONLY to that specific plugin pipeline
 % like `each`
-'@emit-pipe'([{'*', []} | Rest], Action, State) ->
-   '@emit-pipe'(Rest, Action, State);
+'@emit-pipe'([<<"parallel">>], Action, State) ->
+   '@emit-pipe'([], Action, State);
 
-'@emit-pipe'([{'*', [H|T]} | Rest], Action, State) ->
+'@emit-pipe'([<<"parallel">>, H | Rest], Action, State) ->
    case '@emit-pipe'([H], Action, State) of
-      {noreply, NewState} -> '@emit-pipe'([{'*', T} | Rest], Action, NewState);
+      {noreply, NewState} ->
+         '@emit-pipe'([<<"parallel">> | Rest], Action, NewState);
 
       % parallel does not support emitting
       {emit, _NextEv, _PlugDef, NewState} ->
-         '@emit-pipe'([{'*', T} | Rest], Action, NewState)
+         '@emit-pipe'([<<"parallel">> | Rest], Action, NewState)
    end;
 
-'@emit-pipe'([Plugins | Rest], Action, State) when is_list(Plugins) ->
-   '@emit-pipe'([{'*', Plugins} | Rest], Action, State);
-
 % emit in serial, like `foldl`
-'@emit-pipe'([{'>', []} | Rest], Action, State) ->
-   '@emit-pipe'(Rest, Action,State);
+'@emit-pipe'([<<"serial">>], Action, State) ->
+   '@emit-pipe'([], Action, State);
 
-'@emit-pipe'([{'>', [H|T]} | Rest], {event, Type, Ev, #{from := From} = Meta} = Action,
+'@emit-pipe'([<<"serial">>, H | Rest], {event, Type, Ev, #{from := From} = Meta} = Action,
              #{<<"channel">> := Channel} = State) ->
+
    Meta2 = Meta#{from => From ++ [[Channel, H]]},
    Action2 = {event, Type, Ev, Meta2},
 
@@ -146,17 +145,29 @@ code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
       <<_/binary>> ->
          case '@emit-pipe'([H], Action2, State) of
             {noreply, NewState} ->
-               '@emit-pipe'([{'>', T} | Rest], Action2, NewState);
+               '@emit-pipe'([<<"serial">> | Rest], Action2, NewState);
 
             {emit, {EvType2, Ev2}, _PlugDef, NewState} ->
                ForwardAction = {event, EvType2, Ev2, Meta2},
-               '@emit-pipe'([{'>', T} | Rest], ForwardAction, NewState)
+               '@emit-pipe'([<<"serial">> |  Rest], ForwardAction, NewState)
          end;
 
       _ ->
          error_logger:error_msg("serial pipes can not contain anything but plugins (chain: ~p)",
             [pipechain(Action)]),
          {noreply, state}
+   end;
+
+'@emit-pipe'([[<<"serial">> | _] = Items | Rest], Action, State) ->
+   case '@emit-pipe'(Items, Action, State) of
+      {noreply, NewState} ->
+         '@emit-pipe'(Rest, Action, NewState)
+   end;
+
+'@emit-pipe'([[<<"parallel">> | _] = Items | Rest], Action, State) ->
+   case '@emit-pipe'(Items, Action, State) of
+      {noreply, NewState} ->
+         '@emit-pipe'(Rest, Action, NewState)
    end;
 
 '@emit-pipe'([<<Plugin/binary>> | Rest], Action, State) ->
