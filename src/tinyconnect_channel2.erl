@@ -32,8 +32,8 @@ emit(Server, Plugin, EvType, Ev) ->
    gen_server:cast(Server, {emit, Plugin, EvType, Ev}).
 
 -spec start_link(tinyconnect_channel:def()) -> {ok, pid()} | {error, term()}.
-start_link(#{<<"channel">> := _Name} = Def) ->
-   gen_server:start_link(?MODULE, Def, []).
+start_link(#{<<"channel">> := Name} = Def) ->
+   gen_server:start_link({global, Name}, ?MODULE, Def, []).
 
 -spec init(tinyconnect_channel:def()) -> {ok, tinyconnect_channel:def()}.
 init(#{<<"plugins">> := Plugins} = Def) ->
@@ -66,7 +66,7 @@ code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
 % Implementation server API
 '@get'(#{<<"plugins">> := Plugins} = State) ->
    Plugins2 = lists:map(fun serialize_plugin/1, Plugins),
-   {reply, State#{<<"plugins">> => Plugins2}, State}.
+   {reply, {ok, State#{<<"plugins">> => Plugins2}}, State}.
 
 '@stop'(State) ->
    % @todo 2016-10-06; loop through all plugins and stop them
@@ -79,35 +79,48 @@ code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
 
    Autoconnect = maps:get(<<"autoconnect">>, Data, false),
    Data2 = maps:put(<<"autoconnect">>, Autoconnect, Data),
-   Data3 = maps:put(<<"plugins">>, Plugs, Data2),
+   Data3 = maps:put(<<"plugins">>, lists:reverse(Plugs), Data2),
 
 
    #{<<"plugins">> := Plugins} = NewState = 'update-trigger'(maps:to_list(Data3), State),
    Plugins2 = lists:map(fun serialize_plugin/1, Plugins),
 
-   {reply, {ok, #{<<"plugins">> => Plugins2}}, NewState}.
+   {reply, {ok, #{<<"plugins">> => lists:reverse(Plugins2)}}, NewState}.
 
 % Emit event `Ev` from plugin `PlugID` onto all other listeners
 % Listeners are defined in the channel itself in the form `[c1/a > c1/b, ..]`
 % `emit` can not yet send across channels, but that capability may appear in future release
-'@emit'(PlugID, EvType, Ev, #{<<"channel">> := Channel} = State) ->
-   case action(PlugID, {event, EvType, Ev, #{from => [Channel, PlugID]}}, State) of
-      % If nothing is to be done then, do nothing
-      ok ->
+'@emit'(PlugID, EvType, Ev, #{<<"channel">> := Channel, <<"plugins">> := Plugins} = State) ->
+   %case action(PlugID, {event, EvType, Ev, #{from => [Channel, PlugID]}}, State) of
+   %   % If nothing is to be done then, do nothing
+   %   ok ->
+   %      {noreply, State};
+
+   %   stateless ->
+   %      {noreply, State}; % stateless never changes
+
+   %   % just update state, don't anything at all
+   %   {ok, NewState} ->
+   %      {noreply, NewState};
+
+   %   {emit, {EvType, Ev}, #{<<"pipeline">> := Pipe}, NewState} ->
+   %      % evaluate an emit down the pipeline chain!
+   %      Meta = #{from => [[Channel, PlugID]]},
+   %      ForwardAction = {event, EvType, Ev, Meta},
+   %      '@emit-pipe'(Pipe, ForwardAction, NewState)
+   %end.
+   case plugin_by_id(PlugID, Plugins) of
+      {_Head, []} ->
          {noreply, State};
 
-      stateless ->
-         {noreply, State}; % stateless never changes
+       {_Head, [{_Handler, _OldPlugState, #{<<"id">> := ID,
+                                            <<"pipeline">> := Pipeline}} | _Tail]} ->
 
-      % just update state, don't anything at all
-      {ok, NewState} ->
-         {noreply, NewState};
+            Meta = #{from => [[Channel, ID]]},
+            '@emit-pipe'(Pipeline, {event, EvType, Ev, Meta}, State);
 
-      {emit, {EvType, Ev}, #{<<"pipeline">> := Pipe}, NewState} ->
-         % evaluate an emit down the pipeline chain!
-         Meta = #{from => [[Channel, PlugID]]},
-         ForwardAction = {event, EvType, Ev, Meta},
-         '@emit-pipe'(Pipe, ForwardAction, NewState)
+       {_Head, [{_Mod, _OldPlugState, #{}} | _Tail]} ->
+         {noreply, State}
    end.
 
 
@@ -171,6 +184,12 @@ code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
    end;
 
 '@emit-pipe'([<<Plugin/binary>> | Rest], Action, State) ->
+   {event, T, Ev, #{from := F}} = Action,
+   [[X|_]|R] = lists:reverse(lists:map(fun([_Chan,Plug]) -> [Plug, " -> "] end, F)),
+   From = iolist_to_binary(lists:reverse([X|R])),
+
+   io:format("@emit-pipe ~p/~p <~~ ~s~n", [T, Ev, From]),
+
    case action(Plugin, Action, State) of
       ok -> '@emit-pipe'(Rest, Action, State);
       {ok, NewState} -> '@emit-pipe'(Rest, Action, NewState);
@@ -227,7 +246,7 @@ call_action({Target, PlugState, PlugDef}, Action) ->
 
 'update-trigger'([_ | Rest], State) -> 'update-trigger'(Rest, State).
 
-serialize_plugin({_, _PlugState, PlugDef} = Plug) ->
+serialize_plugin({T, _PlugState, PlugDef} = Plug) ->
    case (catch call_action(Plug, serialize)) of
       ok -> PlugDef;
 
@@ -236,6 +255,10 @@ serialize_plugin({_, _PlugState, PlugDef} = Plug) ->
 
       % optimistic approach to see if serialized is supported
       {'EXIT', {function_clause, _}} ->
+         PlugDef;
+
+      X ->
+         error_logger:error_msg("invalid plugin return for ~p: ~p", [T, X]),
          PlugDef
    end.
 
@@ -257,6 +280,26 @@ start_plugin({_Plugin, stateless, #{<<"id">> := _ID}} = Plug, _State) ->
 start_plugin2(PlugDef, #{<<"channel">> := Channel}) ->
    Plugin = maps:get(<<"plugin">>, PlugDef),
    Handler = case Plugin of
+      <<Plugin/binary>> ->
+         case binary:split(Plugin, <<":">>) of
+            [M, F] ->
+               Mod = binary_to_existing_atom(M, utf8),
+               [F2|_] = binary:split(F, <<"/">>),
+               Fun = binary_to_existing_atom(F2, utf8),
+               fun Mod:Fun/2;
+
+            [MF] ->
+               case binary:split(MF, <<"/">>) of
+                  [F, _A] ->
+                     Fun = binary_to_existing_atom(F, utf8),
+                     fun tinyconnect_plugins:Fun/2;
+
+                  [M] ->
+                     Mod = binary_to_existing_atom(M, utf8),
+                     fun Mod:handle/2
+               end
+         end;
+
       Fun when is_function(Fun, 2) ->
          Fun;
 
@@ -266,13 +309,17 @@ start_plugin2(PlugDef, #{<<"channel">> := Channel}) ->
 
    case Handler({start, Channel, PlugDef}, nostate) of
       % Start a stateless plugin (no state is hold)
-      ok -> {Plugin, stateless, PlugDef};
+      ok -> {Handler, stateless, PlugDef};
 
       % Start a stateful plugin
-      {ok, PID} when is_pid(PID) -> {Plugin, {state, PID}, PlugDef};
+      {ok, PID} when is_pid(PID) -> {Handler, {state, PID}, PlugDef};
 
       % Start a stateless agent plugin (all state is hold outside)
-      {ok, PlugState} -> {Plugin, {state, PlugState}, PlugDef}
+      {ok, PlugState} -> {Handler, {state, PlugState}, PlugDef};
+
+      X ->
+         error_logger:error_msg("failed to start plugin ~p invalid return: ~p", [Handler, X]),
+         PlugDef
    end.
 
 % Partition-merge new plugin data into `{Added, Removed, NewPlugins}`
