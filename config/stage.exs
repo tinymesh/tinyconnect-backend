@@ -1,3 +1,3 @@
 use Mix.Config
 
-config :tinyconnect, :config_path, '/etc/tinyconnect.cfg'
+config :tinyconnect, :config_path, nil
