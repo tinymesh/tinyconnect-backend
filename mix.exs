@@ -36,15 +36,19 @@ defmodule Tinyconnect.Mixfile do
     [
       {:cowboy, "~> 1.0.4", override: true},
       {:jsx, "~> 2.8"},
-      {:gen_serial, github: "lafka/gen_serial", branch: "lafka-add-makefile", compile: "make", app: false},
       {:hackney, "~> 1.6"},
       {:tinymesh, github: "tinymesh/tm-proto-erlang"},
       {:backoff, "~> 1.1", manager: :rebar3},
 
-      # test
-      {:mock, "~> 0.1.3", only: :test},
+      # dev, since they need native compilaa
+      {:gen_serial, github: "lafka/gen_serial", branch: "lafka-add-makefile", compile: "make", app: false},
+      {:procket, github: "msantos/procket", tag: "0.7.0"},
 
-      # dev
+      # test
+      {:mock, "~> 0.1.3", only: :test},   # mock some libraries
+      {:socket, "~> 0.3.5", only: :test}, # used for websocket tests
+
+      # actual dev
       {:dialyxir, "~> 0.3.5", only: [:dev]}
 
     ]
