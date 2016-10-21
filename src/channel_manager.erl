@@ -80,8 +80,12 @@ init([]) ->
                 | {Line :: integer(), Mod :: module, Term :: term()}.
 
 load() ->
-   File = application:get_env(tinyconnect, config_path, "/etc/tinyconnect.cfg"),
-   file:consult(File).
+   case application:get_env(tinyconnect, config_path, "/etc/tinyconnect.cfg") of
+      nil -> {ok, [{channels, []}]};
+      undefined -> {ok, [{channels, []}]};
+      File ->
+         file:consult(File)
+   end.
 
 reload() -> reload(?SUP).
 reload(_Sup) ->

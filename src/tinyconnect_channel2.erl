@@ -185,8 +185,8 @@ code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
 
 '@emit-pipe'([<<Plugin/binary>> | Rest], Action, State) ->
    {event, T, Ev, #{from := F}} = Action,
-   [[X|_]|R] = lists:reverse(lists:map(fun([_Chan,Plug]) -> [Plug, " -> "] end, F)),
-   From = iolist_to_binary(lists:reverse([X|R])),
+   [[X2|_]|R] = lists:reverse(lists:map(fun([_Chan,Plug]) -> [Plug, " -> "] end, F)),
+   From = iolist_to_binary(lists:reverse([X2|R])),
 
    io:format("@emit-pipe ~p/~p <~~ ~s~n", [T, Ev, From]),
 

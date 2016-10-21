@@ -9,7 +9,7 @@ defmodule PluginsNewTest do
                                         "channel_handler" => chanhandler}, manager
 
     assert {:ok, {pid, ^chanhandler}} = :channel_manager.child chan, manager
-    assert %{"channel" => ^chan, "autoconnect" => false, "plugins" => []} = chanhandler.get pid
+    assert {:ok, %{"channel" => ^chan, "autoconnect" => false, "plugins" => []}} = chanhandler.get pid
 
     # Add the plugins
     plugins = [
@@ -53,12 +53,13 @@ defmodule PluginsNewTest do
                                                   ["serial", ucase, nbucase, lastucase]])
 
     assert {:ok, %{"plugins" => _updatedplugs}} = chanhandler.update %{"plugins" => plugins = [void|plugins]}, pid
-    assert length(plugins) == length((chanhandler.get pid)["plugins"])
+    assert {:ok, chandef} = chanhandler.get pid
+    assert length(plugins) == length(chandef["plugins"])
 
     # this emits an event on behalf of PluginID (void[:id])
     assert :ok = chanhandler.emit pid, void["id"], :input, <<"AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPp">>
 
-    %{"plugins" => plugins} = chanhandler.get pid
+    {:ok, %{"plugins" => plugins}} = chanhandler.get pid
     assert %{"state" => 32} = Enum.find plugins, &(&1["id"] == nbpre)
     assert %{"state" => "ABCDEFGHIJKLMNOP"} = Enum.find plugins, &(&1["id"] == lastdcase)
     assert %{"state" => 16} = Enum.find plugins, &(&1["id"] == nbdcase)
