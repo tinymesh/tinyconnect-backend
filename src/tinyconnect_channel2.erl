@@ -40,13 +40,15 @@ init(#{<<"plugins">> := Plugins} = Def) ->
    process_flag(trap_exit, true),
 
    NewPlugins = lists:map(fun
-      (#{<<"name">> := Name, <<"plugin">> := Mod} = PlugDef) ->
-         self() ! {start, Name},
-         {Mod, undefined, PlugDef}
+      (#{<<"plugin">> := Mod} = PlugDef) ->
+         PlugID = maps:get(<<"id">>, PlugDef, uuid:uuid()),
+         PlugDef2 = maps:put(<<"id">>, PlugID, PlugDef),
+         {Mod, undefined, PlugDef2}
       end, Plugins),
 
-   {ok, Def#{ <<"plugins">> => NewPlugins,
-              <<"pipelines">> => []}}.
+   NewState = Def#{ <<"plugins">> => NewPlugins },
+   NewPlugins2 = lists:map(fun(P) -> start_plugin(P, NewState) end, NewPlugins),
+   {ok, NewState#{<<"plugins">> => NewPlugins2}}.
 
 handle_call(get, _From, State) -> '@get'(State);
 handle_call(stop, _From, State) -> '@stop'(State);
@@ -57,7 +59,7 @@ handle_cast({emit, Plugin, Ev}, State) ->
 handle_cast({emit, Plugin, EvType, Ev}, State) ->
    '@emit'(Plugin, EvType, Ev, State).
 
-handle_info(failed, State) -> {noreply, State}.
+handle_info(_, State) -> {noreply, State}.
 
 terminate(_Reason, _State) -> ok.
 

@@ -49,8 +49,7 @@
 -define(DEFCHAN, #{
    <<"autoconnect">> => false,
    <<"plugins">> => [],
-   <<"source">> => <<"user">>,
-   <<"state">> => <<"stopped">>
+   <<"source">> => <<"user">>
 }).
 
 start_link() -> start_link(?SUP).
@@ -118,7 +117,8 @@ add(#{<<"channel">> := ChanName} = OrgDef, Sup) ->
          shutdown => brutal_kill
       }) of
 
-      {ok, _Pid} -> ok;
+      {ok, _Pid} ->
+         ok;
       {error, _} = Err -> Err
    end;
 
