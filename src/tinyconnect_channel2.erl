@@ -110,7 +110,7 @@ code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
    %      '@emit-pipe'(Pipe, ForwardAction, NewState)
    %end.
    case plugin_by_id(PlugID, Plugins) of
-      {_Head, []} ->
+      false ->
          {noreply, State};
 
        {_Head, [{_Handler, _OldPlugState, #{<<"id">> := ID,
@@ -202,8 +202,8 @@ pipechain({event, _Type, _Ev, #{from := From}}) ->
 
 % find plugin, and call action/2 on it
 action(PlugID, Action, #{<<"channel">> := Channel, <<"plugins">> := Plugins} = State) ->
-   case plugin_by_id(PlugID, Plugins) of
-      {_Head, []} ->
+   case plugin_by_id(PlugID, Plugins) orelse plugin_by_name(PlugID, Plugins) of
+      false ->
          {error, {notfound, {<<"plugin">>, [Channel, PlugID]}}};
 
        {Head, [{Mod, _OldPlugState, #{<<"id">> := ID} = Def} = P | Tail]} ->
@@ -318,8 +318,8 @@ start_plugin2(PlugDef, #{<<"channel">> := Channel}) ->
       {ok, PlugState} -> {Handler, {state, PlugState}, PlugDef};
 
       X ->
-         error_logger:error_msg("failed to start plugin ~p invalid return: ~p", [Handler, X]),
-         PlugDef
+         lager:error("failed to start plugin ~p invalid return: ~p", [Handler, X]),
+         {Handler, undefined, PlugDef}
    end.
 
 % Partition-merge new plugin data into `{Added, Removed, NewPlugins}`
@@ -341,7 +341,7 @@ partition_plugs([], {Add, Rem, All}) -> {Add, Rem, lists:reverse(All)};
 
 partition_plugs([#{<<"id">> := ID} = PlugUpdate | Rest], {Add, Rem, All} = Acc) ->
    case plugin_by_id(ID, All) of
-      {_, []} ->
+      false ->
          error_logger:error_msg("can't update a non-existing plugin: ~s", [ID]),
          partition_plugs(Rest, Acc);
 
@@ -362,6 +362,21 @@ partition_plugs([#{} = Plug | Rest], {Add, Rem, All}) ->
 %  B := [] when plugin not found
 %  B := [P | R] when plugin P was found
 plugin_by_id(ID, Plugins) ->
-   lists:splitwith(
+   case lists:splitwith(
       fun({_Mod, _State, #{<<"id">> := PlugID}}) -> ID =/= PlugID end,
-      Plugins).
+      Plugins) of
+
+      {_, []} -> false;
+      Return -> Return
+   end.
+
+plugin_by_name(Name, Plugins) ->
+   case lists:splitwith(
+      fun
+         ({_Mod, _State, #{<<"name">> := PlugName}}) -> Name =/= PlugName;
+         (_) -> false end,
+      Plugins) of
+
+      {_, []} -> false;
+      Return -> Return
+   end.
