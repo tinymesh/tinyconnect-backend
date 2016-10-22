@@ -6,6 +6,7 @@ defmodule Tinyconnect.Mixfile do
     [app: :tinyconnect,
      version: @version,
      language: :erlang,
+     erlc_options: [{:parse_transform, :lager_transform}],
      deps: deps,
      dialyzer: dialyzer
     ]
@@ -18,6 +19,9 @@ defmodule Tinyconnect.Mixfile do
       :public_key,
       :ssl,
       :hackney,
+
+      :goldrush,
+      :lager,
 
       :cowboy,
       :crypto,
@@ -39,6 +43,7 @@ defmodule Tinyconnect.Mixfile do
       {:hackney, "~> 1.6"},
       {:tinymesh, github: "tinymesh/tm-proto-erlang"},
       {:backoff, "~> 1.1", manager: :rebar3},
+      {:lager, "~> 3.2"},
 
       # dev, since they need native compilaa
       {:gen_serial, github: "lafka/gen_serial", branch: "lafka-add-makefile", compile: "make", app: false},

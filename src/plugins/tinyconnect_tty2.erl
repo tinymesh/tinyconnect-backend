@@ -34,37 +34,39 @@ open(connect, #{<<"path">> := Path,
 
    case gen_serial:open(Path, PortOpts) of
       {ok, PortRef} ->
+         lager:info("tty2: open ~s", [Path]),
          {next_state, io, maps:put(<<"state">>, PortRef, NewState)};
 
       {error, {exit, {signal, 11}}} ->
+         lager:info("tty2: open ~s ERR: ~s", [Path, "EACCESS"]),
          gen_fsm:send_event_after(trunc(Backoff * 1000), open),
          {next_state, open, maps:put(<<"state">>, <<"error: eaccess">>), NewState};
 
       {error, {_, Err}} when is_list(Err) ->
          gen_fsm:send_event_after(trunc(Backoff * 1000), open),
+         lager:info("tty2: open ~s ERR: ~s", [Path, Err]),
          Str = iolist_to_binary([<<"error: ">>, Err]),
          {next_state, open, maps:put(<<"state">>, Str), NewState};
 
       {error, Err} ->
+         lager:info("tty2: open ~s ERR: ~p", [Path, Err]),
          gen_fsm:send_event_after(trunc(Backoff * 1000), open),
          {next_state, open, maps:put(<<"state">>, Err), NewState}
    end.
-%open(_Ev, State) ->
-%   Backoff = maps:get(<<"backoff">>, State, 1) * 2.75,
-%   NewState = maps:put(<<"backoff">>, min(Backoff, 120), State),
-%   gen_fsm:send_event_after(trunc(Backoff * 1000), open),
-%   {next_state, io, NewState, hibernate}.
 
 io({serial, _Port, Buf},
    #{<<"channel">> := Channel, <<"id">> := ID} = State) ->
+   lager:debug("tty2: recv ~s : ~p", [maps:get(<<"path">>, State), Buf]),
    ok = tinyconnect_channel2:emit({global, Channel}, ID, input, Buf),
-   io:format("hello i'm a serialport!!!! got buf ~p ~n~n~n", [Buf]),
    {next_state, io, State, hibernate};
+
 io({write, <<Buf/binary>>}, #{<<"state">> := Port} = State) ->
+   lager:debug("tty2: write ~s : ~p", [maps:get(<<"path">>, State), Buf]),
    ok = gen_serial:bsend(Port, Buf, 1000),
    {next_state, io, State, hibernate}.
 
 io({write, <<Buf/binary>>}, From, #{<<"state">> := Port} = State) ->
+   lager:debug("tty2: write ~s : ~p", [maps:get(<<"path">>, State), Buf]),
    ok = gen_serial:bsend(Port, Buf, 1000),
    _ = gen_fsm:reply(From, ok),
    {next_state, io, State, hibernate}.
