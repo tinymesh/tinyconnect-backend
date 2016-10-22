@@ -75,6 +75,8 @@ maybe_link(Arg, #{}) -> Arg.
 
 handle_call(serialize, _From, State) -> {reply, {ok, State}, State};
 handle_call({event, input, <<Buf/binary>>, _Meta}, _From, #{<<"port">> := Port} = State) ->
+   #{<<"path">> := Path} = State,
+   lager:debug("pty: send ~s : ~p", [Path, Buf]),
    ok = erlang:port_command(Port, Buf),
    {reply, ok, State};
 handle_call(stop, _From, State) -> {stop, normal, State}.
