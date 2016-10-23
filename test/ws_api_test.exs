@@ -3,7 +3,10 @@ defmodule WebSocketAPITest do
 
   alias Socket.Web, as: WS
 
-  def client, do: WS.connect!({"localhost", 8181}, path: "/ws")
+  def client do
+    port = Application.get_env :tinyconnect, :port, 8181
+    WS.connect!({"localhost", port}, path: "/ws")
+  end
 
   def ref, do: (:random.uniform 72057594037927935) |> Integer.to_string(36)
 

@@ -18,7 +18,7 @@ start(_, _) ->
 
    {ok, _} = cowboy:start_http(http
                               , 100
-                              , [{port, 8181}]
+                              , [{port, application:get_env(tinyconnect, port, 8181)}]
                               , [{env, [{dispatch, Dispatch}]}]),
 
 
