@@ -25,7 +25,7 @@ get(Server) -> gen_server:call(Server, get).
 -spec stop(server()) -> ok | {error, term()}.
 stop(Server) -> gen_server:call(Server, stop).
 
--spec update(Data :: term(), server()) -> ok | {error, term()}.
+-spec update(Data :: term(), server()) -> {ok, tinyconnect_channel:extdef()} | {error, term()}.
 update(Data, Server) -> gen_server:call(Server, {update, Data}).
 
 -spec emit(server(), Plugin :: plugin(), atom(), term()) -> ok.
@@ -69,7 +69,18 @@ code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
 % Implementation server API
 '@get'(#{<<"plugins">> := Plugins} = State) ->
    Plugins2 = lists:map(fun serialize_plugin/1, Plugins),
-   {reply, {ok, State#{<<"plugins">> => Plugins2}}, State}.
+
+   RetState = State#{
+      <<"plugins">> => Plugins2,
+      <<"state">> => state_from_plugins(Plugins)},
+
+   {reply, {ok, RetState}, State}.
+
+state_from_plugins([]) -> started;
+state_from_plugins([{_, {error, _}, _} | _Rest]) -> error;
+state_from_plugins([{_, undefined, _} | _Rest]) -> stopped;
+state_from_plugins([{_, stateless, _} | Rest]) -> state_from_plugins(Rest);
+state_from_plugins([{_, {state, _}, _} | Rest]) -> state_from_plugins(Rest).
 
 '@stop'(State) ->
    % @todo 2016-10-06; loop through all plugins and stop them
@@ -85,10 +96,15 @@ code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
    Data3 = maps:put(<<"plugins">>, lists:reverse(Plugs), Data2),
 
 
-   #{<<"plugins">> := Plugins} = NewState = 'update-trigger'(maps:to_list(Data3), State),
-   Plugins2 = lists:map(fun serialize_plugin/1, Plugins),
+   case 'update-trigger'(maps:to_list(Data3), State) of
+      {ok, #{<<"plugins">> := Plugins} = NewState} ->
+         Plugins2 = lists:map(fun serialize_plugin/1, Plugins),
 
-   {reply, {ok, #{<<"plugins">> => lists:reverse(Plugins2)}}, NewState}.
+         {reply, {ok, NewState#{<<"plugins">> => lists:reverse(Plugins2)}}, NewState};
+
+      {error, _} = Err ->
+         {reply, Err, State}
+   end.
 
 % Emit event `Ev` from plugin `PlugID` onto all other listeners
 % Listeners are defined in the channel itself in the form `[c1/a > c1/b, ..]`
@@ -245,13 +261,17 @@ call_action({Target, PlugState, PlugDef}, Action) ->
       {state, State} -> Handler(Action, State)
    end.
 
-'update-trigger'([], State) -> State;
+'update-trigger'([], State) -> {ok, State};
 
 'update-trigger'([{<<"plugins">>, Plugins} | Rest], State) ->
    Plugins2 = lists:map(fun(M) -> start_plugin(M, State) end, Plugins),
    'update-trigger'(Rest, State#{<<"plugins">> => Plugins2});
 
-'update-trigger'([_ | Rest], State) -> 'update-trigger'(Rest, State).
+'update-trigger'([{<<"autoconnect">>, AC} | Rest], State) ->
+   'update-trigger'(Rest, State#{<<"autoconnect">> => AC});
+
+'update-trigger'([{K, _} | _Rest], _State) ->
+   {error, #{<<"invalidkey">> => K}}.
 
 serialize_plugin({T, _PlugState, PlugDef} = Plug) ->
    case (catch call_action(Plug, serialize)) of
@@ -285,8 +305,11 @@ start_plugin({_Plugin, stateless, #{<<"id">> := _ID}} = Plug, _State) ->
    Plug.
 
 start_plugin2(PlugDef, #{<<"channel">> := Channel}) ->
-   Plugin = maps:get(<<"plugin">>, PlugDef),
+   Plugin = maps:get(<<"plugin">>, PlugDef, undefined),
    Handler = case Plugin of
+      undefined ->
+         fun(_, _) -> {error, noplugarg} end;
+
       <<Plugin/binary>> ->
          case binary:split(Plugin, <<":">>) of
             [M, F] ->
@@ -324,21 +347,21 @@ start_plugin2(PlugDef, #{<<"channel">> := Channel}) ->
       % Start a stateless agent plugin (all state is hold outside)
       {ok, PlugState} -> {Handler, {state, PlugState}, PlugDef};
 
-      X ->
-         _ = lager:error("failed to start plugin ~p invalid return: ~p", [Handler, X]),
-         {Handler, undefined, PlugDef}
+      {error, E2} = Err ->
+         _ = lager:error("failed to start plugin ~p invalid return: ~p", [Handler, E2]),
+         {Handler, Err, PlugDef}
    end.
 
 % Partition-merge new plugin data into `{Added, Removed, NewPlugins}`
 partition_plugs(Plugins, #{<<"plugins">> := Existing}) ->
    {Added, _, Existing2} = partition_plugs(Plugins, {[], [], Existing}),
    % find anything that is NOT in `Plugins` or `Added`
-   Coll = Added ++ Plugins,
+   Coll = Added ++ Existing,
    Removed = lists:filter(fun
       ({_, _, #{<<"id">> := ID}}) ->
          lists:all(fun
-            (#{<<"id">> := EID}) -> ID =/= EID;
-            (#{}) -> false
+            ({_, _, #{<<"id">> := EID}}) -> ID =/= EID;
+            ({_, _, #{}}) -> false
          end, Coll)
    end, Existing),
 

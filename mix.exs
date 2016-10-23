@@ -6,7 +6,7 @@ defmodule Tinyconnect.Mixfile do
     [app: :tinyconnect,
      version: @version,
      language: :erlang,
-     erlc_options: [{:parse_transform, :lager_transform}],
+     erlc_options: [{:parse_transform, :lager_transform}, :debug_info],
      deps: deps,
      dialyzer: dialyzer
     ]
