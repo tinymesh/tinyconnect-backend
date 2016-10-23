@@ -62,7 +62,7 @@ init([]) ->
    Children = lists:map(fun(#{channel := Chan} = Def) ->
       #{
          id => Chan,
-         start => {tinyconnect_channel, start_link, [Def]},
+         start => {tinyconnect_channel2, start_link, [Def]},
          type => worker,
          restart => transient,
          shutdown => brutal_kill

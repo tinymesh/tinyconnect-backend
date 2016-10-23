@@ -32,14 +32,14 @@ handle({event, input, <<_Buf/binary>>, _Meta} = Ev, Server) ->
    gen_server:call(Server, Ev).
 
 init([Chan, #{<<"remote">> := Remote} = PlugDef]) ->
-   lager:info("udp: remote ~s", [maps:get(<<"remote">>, PlugDef)]),
+   _ = lager:info("udp: remote ~s", [maps:get(<<"remote">>, PlugDef)]),
    {Host, Port} = case lists:reverse(binary:split(Remote, <<":">>, [global])) of
       [P] -> {<<"::1">>, binary_to_integer(P)};
       [P | A] ->
          A2 = join(lists:reverse(A), <<":">>),
          {A2, binary_to_integer(P)}
    end,
-   lager:info("udp: open ~s :~p", [Host, Port]),
+   _ = lager:info("udp: open ~s :~p", [Host, Port]),
 
    {Host2, SockOpts} = parsehost(Host),
 
@@ -71,13 +71,13 @@ handle_call({event, input, <<Buf/binary>>, _Meta}, _From, #{} = State) ->
      <<"port">> := Port,
      <<"socket">> := Socket} = State,
 
-   lager:debug("udp: send ~s : ~p", [Remote, Buf]),
+   _ = lager:debug("udp: send ~s : ~p", [Remote, Buf]),
    case gen_udp:send(Socket, Host, Port, Buf) of
       ok ->
          {reply, ok, State};
 
       {error, Err} ->
-         lager:debug("udp: failed to send ~s : ~p", [Remote, Err]),
+         _ = lager:debug("udp: failed to send ~s : ~p", [Remote, Err]),
          {reply, ok, State}
    end;
 
@@ -90,7 +90,7 @@ handle_info({udp, Sock, _, _, <<Buf/binary>>}, #{<<"socket">> := Sock,
                                                  <<"remote">> := Remote,
                                                  <<"channel">> := Chan,
                                                  <<"id">> := ID} = State) ->
-   lager:debug("udp: recv ~s : ~p", [Remote, Buf]),
+   _ = lager:debug("udp: recv ~s : ~p", [Remote, Buf]),
    tinyconnect_channel2:emit({global, Chan}, ID, input, Buf),
    {noreply, State};
 handle_info(nil, State) -> {noreply, State}.
@@ -103,7 +103,6 @@ code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
 
 
 
--spec join([binary()], binary()) -> binary().
 join([], _Sep) -> <<>>;
 join([Part], _Sep) -> Part;
 join([Head|Tail], Sep) ->

@@ -22,5 +22,5 @@ uuid({Hi, Mid, Low}) ->
 clockseq() ->
    Pid = erlang:phash2(self()),
    <<N0:32, N1:32, N2:32>> = crypto:rand_bytes(12),
-   random:seed({N0 bxor Pid, N1 bxor Pid, N2 bxor Pid}),
+   _ = random:seed({N0 bxor Pid, N1 bxor Pid, N2 bxor Pid}),
    <<(random:uniform(2 bsl 14 - 1)):14>>.

@@ -34,7 +34,7 @@ init([Chan, #{} = PlugDef]) ->
    case find_socat() of
       {[_|_] = Exec, Env} ->
          ok = mklinkdir(PlugDef),
-         lager:info("pty: open ~s ~s ~s", [Exec,
+         _ = lager:info("pty: open ~s ~s ~s", [Exec,
             maybe_link(<<"PTY,raw">>, PlugDef), <<"-">>]),
 
          Port = erlang:open_port({spawn_executable, Exec}, [
@@ -43,7 +43,7 @@ init([Chan, #{} = PlugDef]) ->
             , exit_status
             , {args, [maybe_link(<<"PTY,raw">>, PlugDef), <<"-">>]}]),
 
-         lager:info("pty: open ~s", [maybe_link(<<"">>, PlugDef)]),
+         _ = lager:info("pty: open ~s", [maybe_link(<<"">>, PlugDef)]),
 
          PlugDef2 = maps:put(<<"port">>, Port, PlugDef),
          PlugDef3 = maps:put(<<"channel">>, Chan, PlugDef2),
@@ -75,9 +75,9 @@ maybe_link(Arg, #{}) -> Arg.
 
 handle_call(serialize, _From, State) -> {reply, {ok, State}, State};
 handle_call({event, input, <<Buf/binary>>, _Meta}, _From, #{<<"port">> := Port} = State) ->
-   #{<<"path">> := Path} = State,
-   lager:debug("pty: send ~s : ~p", [Path, Buf]),
-   ok = erlang:port_command(Port, Buf),
+   #{<<"link">> := Path} = State,
+   _ = lager:debug("pty: send ~s : ~p", [Path, Buf]),
+   true = erlang:port_command(Port, Buf),
    {reply, ok, State};
 handle_call(stop, _From, State) -> {stop, normal, State}.
 
@@ -86,7 +86,7 @@ handle_cast(nil, State) -> {noreply, State}.
 handle_info({_Port, {data, Input}}, #{<<"link">> := Path,
                                       <<"channel">> := Chan,
                                       <<"id">> := ID} = State) ->
-   lager:debug("pty: recv ~s : ~p", [Path, Input]),
+   _ = lager:debug("pty: recv ~s : ~p", [Path, Input]),
    tinyconnect_channel2:emit({global, Chan}, ID, input, Input),
    {noreply, State};
 handle_info(nil, State) -> {noreply, State}.

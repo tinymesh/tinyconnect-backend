@@ -17,25 +17,26 @@
 ]).
 
 -type plugin() :: uuid:uuid().
+-type server() :: pid() | {global, term()}.
 
--spec get(Server :: pid()) -> {ok, tinyconnect_channel:def()} | {error, term()}.
+-spec get(server()) -> {ok, tinyconnect_channel:extdef()} | {error, term()}.
 get(Server) -> gen_server:call(Server, get).
 
--spec stop(Server :: pid()) -> ok | {error, term()}.
+-spec stop(server()) -> ok | {error, term()}.
 stop(Server) -> gen_server:call(Server, stop).
 
--spec update(Data :: term(), Server :: pid()) -> ok | {error, term()}.
+-spec update(Data :: term(), server()) -> ok | {error, term()}.
 update(Data, Server) -> gen_server:call(Server, {update, Data}).
 
--spec emit(Server :: pid(), Plugin :: plugin(), atom(), term()) -> ok | {error, term()}.
+-spec emit(server(), Plugin :: plugin(), atom(), term()) -> ok.
 emit(Server, Plugin, EvType, Ev) ->
    gen_server:cast(Server, {emit, Plugin, EvType, Ev}).
 
--spec start_link(tinyconnect_channel:def()) -> {ok, pid()} | {error, term()}.
+-spec start_link(tinyconnect_channel:extdef()) -> {ok, pid()} | {error, term()}.
 start_link(#{<<"channel">> := Name} = Def) ->
    gen_server:start_link({global, Name}, ?MODULE, Def, []).
 
--spec init(tinyconnect_channel:def()) -> {ok, tinyconnect_channel:def()}.
+-spec init(tinyconnect_channel:extdef()) -> {ok, tinyconnect_channel:extdef()}.
 init(#{<<"plugins">> := Plugins} = Def) ->
    process_flag(trap_exit, true),
 
@@ -190,10 +191,9 @@ code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
    [[X2|_]|R] = lists:reverse(lists:map(fun([_Chan,Plug]) -> [Plug, " -> "] end, F)),
    From = iolist_to_binary(lists:reverse([X2|R])),
 
-   lager:debug("channel2: @emit-pipe ~p/~p <~~ ~s", [T, Ev, From]),
+   _ = lager:debug("channel2: @emit-pipe ~p/~p <~~ ~s", [T, Ev, From]),
 
    case action(Plugin, Action, State) of
-      ok -> '@emit-pipe'(Rest, Action, State);
       {ok, NewState} -> '@emit-pipe'(Rest, Action, NewState);
       {emit, {_EvType, _Ev}, _PlugDef, _NewState} = X -> X
    end.
@@ -204,7 +204,7 @@ pipechain({event, _Type, _Ev, #{from := From}}) ->
 
 % find plugin, and call action/2 on it
 action(PlugID, Action, #{<<"channel">> := Channel, <<"plugins">> := Plugins} = State) ->
-   case plugin_by_id(PlugID, Plugins) orelse plugin_by_name(PlugID, Plugins) of
+   case first([plugin_by_id(PlugID, Plugins), plugin_by_name(PlugID, Plugins)]) of
       false ->
          {error, {notfound, {<<"plugin">>, [Channel, PlugID]}}};
 
@@ -227,6 +227,11 @@ action(PlugID, Action, #{<<"channel">> := Channel, <<"plugins">> := Plugins} = S
                {ok, State}
          end
    end.
+
+first([]) -> false;
+first([false | Rest]) -> first(Rest);
+first([X|_]) -> X.
+
 
 call_action({Target, PlugState, PlugDef}, Action) ->
    Handler = case Target of
@@ -320,7 +325,7 @@ start_plugin2(PlugDef, #{<<"channel">> := Channel}) ->
       {ok, PlugState} -> {Handler, {state, PlugState}, PlugDef};
 
       X ->
-         lager:error("failed to start plugin ~p invalid return: ~p", [Handler, X]),
+         _ = lager:error("failed to start plugin ~p invalid return: ~p", [Handler, X]),
          {Handler, undefined, PlugDef}
    end.
 
