@@ -3,8 +3,34 @@ defmodule PluginTTY2Test do
 
   import Mock
 
+  test "incomplete arguments", %{test: name} do
+    path = "/dev/vtty0"
+
+    chan = "tty2-#{name}"
+    {:ok, manager} = :channel_manager.start_link name
+
+    plugins = [
+      %{"name" => "vtty0",
+        "plugin" => "tinyconnect_tty2"}
+    ]
+
+    :ok = :channel_manager.add %{"channel" => chan, "plugins" => plugins}, manager
+
+    assert {:ok, [%{"state" => state, "plugins" => [plug]}]} = :channel_manager.channels manager
+    assert :error = state
+    assert %{"state" => %{"error" => %{"args" => args}}} = plug
+    assert %{"options.baud" => _,
+             "options.flow_control" => _,
+             "path" => _} = args
+
+    plugins2 = [Map.put(hd(plugins), "path", path)]
+    {:ok, %{"plugins" => [plug]}} = :channel_manager.update chan, %{"plugins" => plugins2}, manager
+    assert ["options.baud", "options.flow_control"] = Map.keys(plug["state"]["error"]["args"])
+
+  end
+
   test "serial test", %{test: name} do
-    path = "/dev/vtty"
+    path = "/dev/vtty1"
     ret = {ref, parent} = {make_ref, self}
 
     with_mock :gen_serial, [
@@ -30,9 +56,9 @@ defmodule PluginTTY2Test do
       assert {:ok, {pid, ^chanhandler}} = :channel_manager.child chan, manager
 
       plugins = [
-        %{"name" => "vtty0",
+        %{"name" => "vtty1",
           "plugin" => "tinyconnect_tty2",
-          "port" => path,
+          "path" => path,
           "options" => %{"baud" => 9600, "flow_control" => "none"}},
 
         %{"name" => "output",
