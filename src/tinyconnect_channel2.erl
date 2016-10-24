@@ -211,7 +211,8 @@ state_from_plugins([{_, {state, _}, _} | Rest]) -> state_from_plugins(Rest).
 
    case action(Plugin, Action, State) of
       {ok, NewState} -> '@emit-pipe'(Rest, Action, NewState);
-      {emit, {_EvType, _Ev}, _PlugDef, _NewState} = X -> X
+      {emit, {_EvType, _Ev}, _PlugDef, _NewState} = X -> X;
+      {error, {args, _}} -> '@emit-pipe'(Rest, Action, State)
    end.
 
 pipechain({event, _Type, _Ev, #{from := From}}) ->
@@ -236,6 +237,9 @@ action(PlugID, Action, #{<<"channel">> := Channel, <<"plugins">> := Plugins} = S
                NewState = State#{<<"plugins">> => Head ++ [{Mod, {state, NewPlugState}, Def} | Tail]},
                {emit, {EvType, Ev}, Def, NewState};
 
+            {error, {args, _Args}} = Err ->
+               Err;
+
             X ->
                error_logger:error_msg("plugin ~s/~s invalid return:~n~p~nplugin may be in invalid state~n", [
                   Channel, ID, X]),
@@ -256,6 +260,7 @@ call_action({Target, PlugState, PlugDef}, Action) ->
    end,
 
    case PlugState of
+      {error, {args, _Args}} = E -> E;
       undefined -> Handler(Action, nostate);
       stateless -> Handler(Action, nostate);
       {state, State} -> Handler(Action, State)
@@ -279,6 +284,12 @@ serialize_plugin({T, _PlugState, PlugDef} = Plug) ->
 
       {ok, Serialized} ->
          maps:put(<<"state">>, Serialized, PlugDef);
+
+      {error, {args, Args}} ->
+         Args2 = lists:foldl(fun(K, Acc) ->
+            maps:put(join(K, <<".">>), maps:get(K, Args), Acc)
+         end, #{}, maps:keys(Args)),
+         maps:put(<<"state">>, #{<<"error">> => #{<<"args">> => Args2}}, PlugDef);
 
       % optimistic approach to see if serialized is supported
       {'EXIT', {function_clause, _}} ->
@@ -410,3 +421,8 @@ plugin_by_name(Name, Plugins) ->
       {_, []} -> false;
       Return -> Return
    end.
+
+join([], _Sep) -> <<>>;
+join([Part], _Sep) -> Part;
+join([Head|Tail], Sep) ->
+  lists:foldl(fun(Value, Acc) -> <<Acc/binary, Sep/binary, Value/binary>> end, Head, Tail).
