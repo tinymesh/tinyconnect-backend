@@ -17,7 +17,7 @@ defmodule TTYManagerTest do
 
     port = "/dev/vtty0"
     :ok = :application.set_env(:tinyconnect, :test_ttys, {:test, [port]})
-    assert {:ok, res = [%{id: id, path: ^port}]} = :tty_manager.refresh manager
+    assert {:ok, res = [%{"id" => id, "path" => ^port}]} = :tty_manager.refresh manager
     assert {:ok, ^res} = :tty_manager.get manager
     assert {:ok, hd(res)} == :tty_manager.get id, manager
   end
@@ -31,7 +31,7 @@ defmodule TTYManagerTest do
 
     port = "/dev/vtty0"
     :ok = :application.set_env(:tinyconnect, :test_ttys, {:test, [port]})
-    assert {:ok, res = [%{path: ^port}]} = :tty_manager.refresh manager
+    assert {:ok, res = [%{"path" => ^port}]} = :tty_manager.refresh manager
 
     assert_receive {:tty_manager, :ports, ^res}
     assert {:ok, ^res} = :tty_manager.get manager

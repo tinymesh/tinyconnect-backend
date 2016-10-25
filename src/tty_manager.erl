@@ -5,15 +5,12 @@
      start_link/1
    , start_link/2
 
-   , subscribe/1
-   , subscribe/2
-   , unsubscribe/1
-   , unsubscribe/2
+   , subscribe/0 , subscribe/1 , subscribe/2
+   , unsubscribe/0 , unsubscribe/1 , unsubscribe/2
 
-   , get/1
-   , get/2
+   , get/1, get/2
 
-   , refresh/1
+   , refresh/0, refresh/1
 
    , init/1
    , handle_call/3
@@ -25,14 +22,18 @@
    , listports/1
 ]).
 
+subscribe() -> subscribe(?MODULE).
 subscribe(Server) -> subscribe(self(), Server).
 subscribe(PID, Server) -> gen_server:call(Server, {subscribe, PID}).
 
+unsubscribe() -> unsubscribe(?MODULE).
 unsubscribe(Server) -> unsubscribe(self(), Server).
 unsubscribe(PID, Server) -> gen_server:call(Server, {unsubscribe, PID}).
 
 get(Server) -> gen_server:call(Server, get).
 get(ID, Server) when is_binary(ID) -> gen_server:call(Server, {get, ID}).
+
+refresh() -> refresh(?MODULE).
 
 refresh(Server) ->
    gen_server:call(Server, refresh).
@@ -48,7 +49,7 @@ init(GroupName) ->
 handle_call(get, _From, #{ports := Ports} = State) -> {reply, {ok, Ports}, State};
 handle_call({get, ID}, _From, #{ports := Ports} = State) ->
    case lists:filter(
-      fun(#{id := Match}) when Match =:= ID -> true;
+      fun(#{<<"id">> := Match}) when Match =:= ID -> true;
          (_Item) -> false end, Ports) of
 
       [Item] -> {reply, {ok, Item}, State};
@@ -59,7 +60,7 @@ handle_call({update, PortID, Patch}, _From, State) when is_binary(PortID) ->
    handle_call({update, binary_to_atom(PortID, utf8), Patch}, _From, State);
 handle_call({update, PortID, Patch}, _From, #{ports := Ports} = State) ->
    NewPorts = lists:map(
-      fun(#{id := Match} = Item) when Match =:= PortID ->
+      fun(#{<<"id">> := Match} = Item) when Match =:= PortID ->
             maps:merge(Item, Patch);
          (Item) -> Item
       end, Ports),
@@ -82,9 +83,11 @@ handle_call(refresh, _From, #{ports := OldPorts} = State) ->
    end;
 
 handle_call({subscribe, Who}, _From, #{pg2 := PG2} = State) ->
+   lager:debug("tty_manager: add subscription ~p", [Who]),
    {reply, pg2:join(PG2, Who), State};
 
 handle_call({unsubscribe, Who}, _From, #{pg2 := PG2} = State) ->
+   lager:debug("tty_manager: rem subscription ~p", [Who]),
    {reply, pg2:leave(PG2, Who), State};
 
 handle_call(_, _From, State) -> {noreply, State}.
@@ -115,14 +118,15 @@ portstruct(ID, Path, Name) when is_list(Path) -> portstruct(ID, iolist_to_binary
 portstruct(ID, Path, Name) when is_list(Name) -> portstruct(ID, Path, iolist_to_binary(Name));
 portstruct(ID, Path, Name) ->
    #{
-        id   => ID
-      , path => Path
-      , name => Name
-      , 'proto/tm' => #{nid => nil, sid => nil, uid => 0}
+        <<"id">>   => ID
+      , <<"path">> => Path
+      , <<"name">> => Name
+      , <<"proto/tm">> => #{<<"nid">> => null, <<"sid">> => null, <<"uid">> => null}
    }.
 
 notify(#{ports := NewPorts, pg2 := PG2}) ->
    Members = pg2:get_members(PG2),
+   lager:debug("tty_manager: notify ~p", [Members]),
    lists:foreach(fun(PID) -> PID ! {?MODULE, ports, NewPorts} end, Members).
 
 listports(Ports) ->
@@ -133,9 +137,9 @@ listports(Ports) ->
       {unix, linux} ->
          NewPorts = lists:map(
             fun(Path) ->
-               #{id := ID} = Default = portstruct(Path),
+               #{<<"id">> := ID} = Default = portstruct(Path),
 
-               case lists:filter(fun(#{id := M}) -> ID =:= M end, Ports) of
+               case lists:filter(fun(#{<<"id">> := M}) -> ID =:= M end, Ports) of
                   [] -> Default;
                   [E] -> E
                end
@@ -156,7 +160,7 @@ listports(Ports) ->
 
                   Default = portstruct(ID, ID, Name),
 
-                  case lists:filter(fun(#{id := M}) -> ID =:= M end, Ports) of
+                  case lists:filter(fun(#{<<"id">> := M}) -> ID =:= M end, Ports) of
                      [] -> Default;
                      [E] -> E
                   end

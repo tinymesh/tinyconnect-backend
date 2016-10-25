@@ -89,7 +89,25 @@ defmodule WebSocketAPITest do
     assert false == chan["autoconnect"]
   end
 
-  test "autoconnect plugins" do
+  defmacrop timeout(call, time \\ 1000) do
+    quote do
+      {ref, parent} = {make_ref, self}
+      spawn_link fn() -> send parent, {ref, unquote(call)} end
+      receive do
+        {^ref, res} -> {:ok, res}
+      after unquote(time) -> {:error, :timeout} end
+    end
+  end
+
+  test "tty_manager subscription and publish" do
+    sock = client
+
+    port = "/dev/vtty0"
+    :ok = :application.set_env(:tinyconnect, :test_ttys, {:test, [port]})
+    assert {:ok, res = [%{"path" => ^port}]} = :tty_manager.refresh :tty_manager
+
+    assert {:ok, {:text, "null " <> json}} = timeout WS.recv!(sock)
+    assert %{"resp" => %{"serialports" => ^res}} = :jsx.decode(json, [:return_maps])
   end
 end
 
