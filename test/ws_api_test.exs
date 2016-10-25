@@ -89,6 +89,22 @@ defmodule WebSocketAPITest do
     assert false == chan["autoconnect"]
   end
 
+  test "create channel -> remove plugins" do
+    sock = client
+
+    a = %{"plugin" => Test.Plugin.WSChannelsPlugin, "name"   => "a"}
+    b = %{"plugin" => Test.Plugin.WSChannelsPlugin, "name"   => "b"}
+    c = %{"plugin" => Test.Plugin.WSChannelsPlugin, "name"   => "c"}
+
+    {:ok, sendref} = write sock, ["channels", "new"], %{"plugins" => [a, b ,c]}
+    assert {:ok, %{"resp" => %{"channels" => [%{"channel" => chank} = chan]}}} = recv sock, sendref
+    [%{"name" => "a"} = a, %{"name" => "b"}, %{"name" => "c"} = c] = chan["plugins"]
+
+    {:ok, sendref} = write sock, ["channels", "update", chank], %{"plugins" => [a, c]}
+    assert {:ok, %{"resp" => %{"channels" => [%{"channel" => ^chank} = chan]}}} = recv sock, sendref
+    assert [a,c] == chan["plugins"]
+  end
+
   defmacrop timeout(call, time \\ 1000) do
     quote do
       {ref, parent} = {make_ref, self}
