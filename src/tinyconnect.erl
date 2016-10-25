@@ -37,7 +37,7 @@ init(undefined)   ->
 
    Children = [ #{ id => queue_manager ,   start => {queue_manager, start_link, []} },
                 #{ id => channel_manager , start => {channel_manager, start_link, []} },
-                #{ id => tty_manager,      start => {tty_manager, start_link, []} } ],
+                #{ id => tty_manager,      start => {tty_manager, start_link, [main]} } ],
 
 
    { ok, {Sup, Children}}.

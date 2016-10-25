@@ -2,17 +2,18 @@
 -behaviour(gen_server).
 
 -export([
-     start_link/0
+     start_link/1
+   , start_link/2
 
-   , subscribe/0
    , subscribe/1
-   , unsubscribe/0
+   , subscribe/2
    , unsubscribe/1
+   , unsubscribe/2
 
-   , get/0
    , get/1
+   , get/2
 
-   , refresh/0
+   , refresh/1
 
    , init/1
    , handle_call/3
@@ -24,33 +25,31 @@
    , listports/1
 ]).
 
--define(group, ports).
+subscribe(Server) -> subscribe(self(), Server).
+subscribe(PID, Server) -> gen_server:call(Server, {subscribe, PID}).
 
-subscribe() -> subscribe(self()).
-subscribe(PID) -> ok = pg2:join(?group, PID).
+unsubscribe(Server) -> unsubscribe(self(), Server).
+unsubscribe(PID, Server) -> gen_server:call(Server, {unsubscribe, PID}).
 
-unsubscribe() -> unsubscribe(self()).
-unsubscribe(_PID) -> ok. %ok = pg2:leave(?group, PID).
+get(Server) -> gen_server:call(Server, get).
+get(ID, Server) when is_binary(ID) -> gen_server:call(Server, {get, ID}).
 
-get() -> gen_server:call(?MODULE, get).
-get(ID) when is_binary(ID) -> gen_server:call(?MODULE, {get, ID}).
+refresh(Server) ->
+   gen_server:call(Server, refresh).
 
-refresh() ->
-   gen_server:call(?MODULE, refresh).
+start_link(GroupName) -> gen_server:start_link(?MODULE, [GroupName], []).
+start_link(GroupName, RegName) -> gen_server:start_link(RegName, ?MODULE, [GroupName], []).
 
-start_link() ->
-   gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
-
-init(_) ->
-   ok = pg2:create(?group),
+init(GroupName) ->
+   _ = pg2:create(PG2Group = {tty_manager, GroupName}),
    _ = timer:send_interval(1500, refresh),
-   {ok, []}.
+   {ok, #{pg2 => PG2Group, ports => []}}.
 
-handle_call(get, _From, State) -> {reply, {ok, State}, State};
-handle_call({get, ID}, _From, State) ->
+handle_call(get, _From, #{ports := Ports} = State) -> {reply, {ok, Ports}, State};
+handle_call({get, ID}, _From, #{ports := Ports} = State) ->
    case lists:filter(
       fun(#{id := Match}) when Match =:= ID -> true;
-         (_Item) -> false end, State) of
+         (_Item) -> false end, Ports) of
 
       [Item] -> {reply, {ok, Item}, State};
       [] -> {reply, {error, notfound}, State}
@@ -58,45 +57,51 @@ handle_call({get, ID}, _From, State) ->
 
 handle_call({update, PortID, Patch}, _From, State) when is_binary(PortID) ->
    handle_call({update, binary_to_atom(PortID, utf8), Patch}, _From, State);
-handle_call({update, PortID, Patch}, _From, State) ->
-   NewState = lists:map(
+handle_call({update, PortID, Patch}, _From, #{ports := Ports} = State) ->
+   NewPorts = lists:map(
       fun(#{id := Match} = Item) when Match =:= PortID ->
             maps:merge(Item, Patch);
          (Item) -> Item
-      end, State),
+      end, Ports),
 
-   notify(NewState),
+   notify(State#{ports => NewPorts}),
 
-   {reply, ok, NewState};
+   {reply, ok, State#{ports => NewPorts}};
 
-handle_call(refresh, _From, OldPorts) ->
+handle_call(refresh, _From, #{ports := OldPorts} = State) ->
    {ok, Ports} = listports(OldPorts),
 
    case Ports of
       OldPorts ->
-         {reply, {ok, OldPorts}, OldPorts};
+         {reply, {ok, OldPorts}, State};
 
       NewPorts ->
-         io:format("ports: new ports (total: ~p)~n", [length(NewPorts)]),
-         notify(NewPorts),
-         {reply, {ok, NewPorts}, NewPorts}
+         lager:info("tty_manager: ports changed, total: ~p", [length(NewPorts)]),
+         notify(State#{ports => NewPorts}),
+         {reply, {ok, NewPorts}, State#{ports => NewPorts}}
    end;
+
+handle_call({subscribe, Who}, _From, #{pg2 := PG2} = State) ->
+   {reply, pg2:join(PG2, Who), State};
+
+handle_call({unsubscribe, Who}, _From, #{pg2 := PG2} = State) ->
+   {reply, pg2:leave(PG2, Who), State};
 
 handle_call(_, _From, State) -> {noreply, State}.
 
 handle_cast(_, State) -> {noreply, State}.
 
-handle_info(refresh, OldPorts) ->
+handle_info(refresh, #{ports := OldPorts} = State) ->
    {ok, Ports} = listports(OldPorts),
 
    case Ports of
       OldPorts ->
-         {noreply, Ports};
+         {noreply, State};
 
       NewPorts ->
          io:format("ports: new ports (total: ~p)~n", [length(NewPorts)]),
-         notify(NewPorts),
-         {noreply, NewPorts}
+         notify(State#{ports => NewPorts}),
+         {noreply, State#{ports => NewPorts}}
    end.
 
 terminate(_Reason, _State) -> ok.
@@ -116,12 +121,15 @@ portstruct(ID, Path, Name) ->
       , 'proto/tm' => #{nid => nil, sid => nil, uid => 0}
    }.
 
-notify(NewPorts) ->
-   Members = pg2:get_members(?group),
+notify(#{ports := NewPorts, pg2 := PG2}) ->
+   Members = pg2:get_members(PG2),
    lists:foreach(fun(PID) -> PID ! {?MODULE, ports, NewPorts} end, Members).
 
 listports(Ports) ->
-   case os:type() of
+   case application:get_env(tinyconnect, test_ttys, os:type()) of
+      {test, NewPorts} ->
+         {ok, lists:map(fun portstruct/1, NewPorts)};
+
       {unix, linux} ->
          NewPorts = lists:map(
             fun(Path) ->
