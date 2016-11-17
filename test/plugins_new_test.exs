@@ -67,6 +67,34 @@ defmodule PluginsNewTest do
     assert %{"state" => 16} = Enum.find plugins, &(&1["id"] == nbucase)
   end
 
+  test "handle plugin update internally", %{test: name} do
+    {:ok, manager} = :channel_manager.start_link name
+
+    {chan, chanhandler} = {"test", :tinyconnect_channel2}
+    assert :ok = :channel_manager.add %{"channel" => chan,
+                                        "plugins" => [
+                                          %{"plugin" => &__MODULE__.updateable_plug/2},
+                                          %{"plugin" => &__MODULE__.not_updateable_plug/2}
+                                        ],
+                                        "channel_handler" => chanhandler}, manager
+
+    assert {:ok, {pid, ^chanhandler}} = :channel_manager.child chan, manager
+    assert {:ok, %{"plugins" => [update, noupdate]}} = chanhandler.get pid
+
+    patch = %{"plugins" => [Map.put(update, "name", "updated"),
+                            Map.put(noupdate, "name", "not-updated")]}
+    assert {:ok, %{"plugins" => plugins}} = chanhandler.update patch, pid
+
+    assert Map.put(update, "name", "updated") === Enum.find plugins, &(&1["name"] === "updated")
+    assert noupdate === Enum.find plugins, &(&1["name"] === nil)
+
+  end
+
+  def updateable_plug({:update, newplugdef, _newchandef}, _state), do: {:ok, newplugdef}
+  def updateable_plug(_, _state), do: :ok
+  def not_updateable_plug({:update, _newplugdef, _newchandef}, _state), do: {:error, :unupdatable}
+  def not_updateable_plug(_, _state), do: :ok
+
   def forwardplugin({:event, :input, x, _meta}, state), do: {:emit, :input, x, state}
   def forwardplugin(_, _state), do: :ok
 

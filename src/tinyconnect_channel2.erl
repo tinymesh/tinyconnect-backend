@@ -87,9 +87,12 @@ state_from_plugins([{_, {state, _}, _} | Rest]) -> state_from_plugins(Rest).
    {stop, normal, ok, State}.
 
 '@update'(Data, #{<<"plugins">> := _OldPlugs} = State) ->
-   {_Added, _Removed, Plugs} = partition_plugs(maps:get(<<"plugins">>, Data, []), State),
+   {Added, Changed, Removed, Plugs} = partition_plugs(maps:get(<<"plugins">>, Data, []), State),
 
-   %Changed = length(OldPlugs) - length(Removed) - length(Added),
+   _ = lager:debug("new plugins... changed: ~p, added: ~p, removed: ~p", [
+                                                                 length(Changed),
+                                                                 length(Added),
+                                                                 length(Removed)]),
 
    Autoconnect = maps:get(<<"autoconnect">>, Data, false),
    Data2 = maps:put(<<"autoconnect">>, Autoconnect, Data),
@@ -268,12 +271,48 @@ call_action({Target, PlugState, PlugDef}, Action) ->
 
 'update-trigger'([], State) -> {ok, State};
 
-'update-trigger'([{<<"plugins">>, Plugins} | Rest], State) ->
-   Plugins2 = lists:map(fun(M) -> start_plugin(M, State) end, Plugins),
-   'update-trigger'(Rest, State#{<<"plugins">> => Plugins2});
+'update-trigger'([{<<"plugins">>, Plugins} | Rest], #{<<"plugins">> := CurrPlugins} = State) ->
+   Plugins2 = lists:map(fun({_Plug, _PlugState, NewPlugDef} = M) ->
+      % start or update plugin
+      MatchID = maps:get(<<"id">>, NewPlugDef, none),
+      case lists:filter(fun
+               ({_, _, #{<<"id">> := ID}}) -> ID =:= MatchID;
+               ({_, _, #{}}) -> false
+           end,  CurrPlugins) of
 
+         [] -> start_plugin(M, State);
+         [{Mod, CurrPlugState, _CurrPlugDef} = CurrPlugin] ->
+            case call_action(CurrPlugin, {update, NewPlugDef, State}) of
+               ok -> CurrPlugin;
+               {ok, NewPlugDef} -> {Mod, CurrPlugState, NewPlugDef};
+               {error, _E} -> CurrPlugin;
+               {'EXIT', {function_clause, _}} -> CurrPlugin;
+               X ->
+                  error_logger:error_msg("invalid plugin return for ~p: ~p", [Mod, X]),
+                  CurrPlugin
+            end
+      end
+   end, Plugins),
+'update-trigger'(Rest, State#{<<"plugins">> => Plugins2});
+
+'update-trigger'([{<<"name">>, Name} | Rest], State)      -> 'update-trigger'(Rest, State#{<<"name">> => Name});
 'update-trigger'([{<<"autoconnect">>, AC} | Rest], State) ->
+   % the system assumes that channel and all it's plugins should be alive
+   % meaning for now that autoconnect is implicitly true regardless of it's
+   % actual value.
+   % In the future
+   %   on transition:
+   %    false > true -> notify plugins to start
+   %    true > false -> nothing
    'update-trigger'(Rest, State#{<<"autoconnect">> => AC});
+'update-trigger'([{<<"channel">>, _} | Rest], State)      -> 'update-trigger'(Rest, State);
+'update-trigger'([{<<"source">>, _} | Rest], State)       -> 'update-trigger'(Rest, State);
+'update-trigger'([{<<"state">>, _} | Rest], State)        ->
+   % nothing definition actual state, it's just assumed that every existing
+   % channel should be started. @todo will be improved in future
+   'update-trigger'(Rest, State);
+
+
 
 'update-trigger'([{K, _} | _Rest], _State) ->
    {error, #{<<"invalidkey">> => K}}.
@@ -344,8 +383,11 @@ start_plugin2(PlugDef, #{<<"channel">> := Channel}) ->
       Fun when is_function(Fun, 2) ->
          Fun;
 
-      Module ->
-         fun Module:handle/2
+      Module when is_atom(Module) ->
+         fun Module:handle/2;
+
+      Fun when is_function(Fun) ->
+         fun(_, _) -> {error, invalid_plugin_arg} end
    end,
 
    case Handler({start, Channel, PlugDef}, nostate) of
@@ -358,29 +400,26 @@ start_plugin2(PlugDef, #{<<"channel">> := Channel}) ->
       % Start a stateless agent plugin (all state is hold outside)
       {ok, PlugState} -> {Handler, {state, PlugState}, PlugDef};
 
-      {error, E2} = Err ->
-         _ = lager:error("failed to start plugin ~p invalid return: ~p", [Handler, E2]),
+      % Plugin can't start due to input arguments
+      {error, {args, Args}} ->
+         {Handler, {error, {args, Args}}, PlugDef};
+
+      {error, _E2} = Err ->
+         _ = lager:error("failed to start plugin ~p invalid return: ~p", [Handler, Err]),
          {Handler, Err, PlugDef}
    end.
 
 % Partition-merge new plugin data into `{Added, Removed, NewPlugins}`
 partition_plugs(Plugins, #{<<"plugins">> := Existing}) ->
-   {Added, _, Existing2} = partition_plugs(Plugins, {[], [], Existing}),
+   {Added, Change, Existing2} = partition_plugs(Plugins, {[], [], Existing}),
    % find anything that is NOT in `Plugins` or `Added`
-   Coll = Added ++ Existing,
-   Removed = lists:filter(fun
-      ({_, _, #{<<"id">> := ID}}) ->
-         lists:all(fun
-            ({_, _, #{<<"id">> := EID}}) -> ID =/= EID;
-            ({_, _, #{}}) -> false
-         end, Coll)
-   end, Existing),
+   Removed = (Existing2 -- Added) -- Change,
 
-   {Added, Removed, Existing2 -- Removed};
+   {Added, Change, Removed, Existing2 -- Removed};
 
 partition_plugs([], {Add, Rem, All}) -> {Add, Rem, lists:reverse(All)};
 
-partition_plugs([#{<<"id">> := ID} = PlugUpdate | Rest], {Add, Rem, All} = Acc) ->
+partition_plugs([#{<<"id">> := ID} = PlugUpdate | Rest], {Add, Change, All} = Acc) ->
    case plugin_by_id(ID, All) of
       false ->
          error_logger:error_msg("can't update a non-existing plugin: ~s", [ID]),
@@ -388,16 +427,16 @@ partition_plugs([#{<<"id">> := ID} = PlugUpdate | Rest], {Add, Rem, All} = Acc) 
 
       {Head, [{Mod, PlugState, _OldPlugDef} | Tail]} ->
          % @todo 2016-10-06; maybe require plugin to restart
-         %error_logger:info_msg("updating plugin ~s: ~p", [ID, PlugUpdate]),
-         NewAcc = {Add, Rem, Head ++ [{Mod, PlugState, PlugUpdate} | Tail]},
+         Def = {Mod, PlugState, PlugUpdate},
+         NewAcc = {Add, [Def | Change], Head ++ [Def | Tail]},
          partition_plugs(Rest, NewAcc)
    end;
 
-partition_plugs([#{} = Plug | Rest], {Add, Rem, All}) ->
+partition_plugs([#{} = Plug | Rest], {Add, Change, All}) ->
    % things without a id means a new plugin!
    Plug2 = maps:put(<<"id">>, uuid:uuid(), Plug),
    SupDef = {undefined, undefined, Plug2},
-   partition_plugs(Rest, {[SupDef | Add], Rem, [SupDef | All]}).
+   partition_plugs(Rest, {[SupDef | Add], Change, [SupDef | All]}).
 
 % Returns tuple {A, B} where
 %  B := [] when plugin not found
