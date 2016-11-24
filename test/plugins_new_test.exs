@@ -19,7 +19,7 @@ defmodule PluginsNewTest do
     ]
 
     assert {:ok, %{"plugins" => [_a, b, _c]}} = chanhandler.update %{"plugins" => plugins}, pid
-    b = Map.put b, :some, :value
+    b = Map.put b, "some", :value
     assert {:ok, %{"plugins" => [^b]}} = chanhandler.update %{"plugins" => [b]}, pid
   end
 
@@ -59,7 +59,11 @@ defmodule PluginsNewTest do
     # this emits an event on behalf of PluginID (void[:id])
     assert :ok = chanhandler.emit pid, void["id"], :input, <<"AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPp">>
 
+
+
+    :timer.sleep 500
     {:ok, %{"plugins" => plugins}} = chanhandler.get pid
+
     assert %{"state" => 32} = Enum.find plugins, &(&1["id"] == nbpre)
     assert %{"state" => "ABCDEFGHIJKLMNOP"} = Enum.find plugins, &(&1["id"] == lastdcase)
     assert %{"state" => 16} = Enum.find plugins, &(&1["id"] == nbdcase)
@@ -74,26 +78,37 @@ defmodule PluginsNewTest do
     assert :ok = :channel_manager.add %{"channel" => chan,
                                         "plugins" => [
                                           %{"plugin" => &__MODULE__.updateable_plug/2},
-                                          %{"plugin" => &__MODULE__.not_updateable_plug/2}
+                                          %{"plugin" => &__MODULE__.not_updateable_plug/2},
+                                          %{"plugin" => &__MODULE__.state_change_plug/2}
                                         ],
                                         "channel_handler" => chanhandler}, manager
 
     assert {:ok, {pid, ^chanhandler}} = :channel_manager.child chan, manager
-    assert {:ok, %{"plugins" => [update, noupdate]}} = chanhandler.get pid
+    assert {:ok, %{"plugins" => [update, noupdate, stateupdate]}} = chanhandler.get pid
 
     patch = %{"plugins" => [Map.put(update, "name", "updated"),
-                            Map.put(noupdate, "name", "not-updated")]}
+                            Map.put(noupdate, "name", "not-updated"),
+                            Map.put(stateupdate, "name", "poke state")]}
     assert {:ok, %{"plugins" => plugins}} = chanhandler.update patch, pid
 
     assert Map.put(update, "name", "updated") === Enum.find plugins, &(&1["name"] === "updated")
     assert noupdate === Enum.find plugins, &(&1["name"] === nil)
+    assert Map.put(stateupdate, "name", "poke state") === Enum.find plugins, &(&1["name"] === "poke state")
+
 
   end
 
   def updateable_plug({:update, newplugdef, _newchandef}, _state), do: {:ok, newplugdef}
   def updateable_plug(_, _state), do: :ok
+
   def not_updateable_plug({:update, _newplugdef, _newchandef}, _state), do: {:error, :unupdatable}
   def not_updateable_plug(_, _state), do: :ok
+
+  def state_change_plug({:start, _, _}, _state), do: {:ok, 0}
+  def state_change_plug({:update, newplugdef, _newchandef}, state) do
+      {:state, state, newplugdef}
+  end
+  def state_change_plug(_, _state), do: :ok
 
   def forwardplugin({:event, :input, x, _meta}, state), do: {:emit, :input, x, state}
   def forwardplugin(_, _state), do: :ok
