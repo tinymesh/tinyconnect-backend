@@ -67,22 +67,25 @@ defmodule PluginTTY2Test do
         %{"name" => "input",
           "plugin" => &inputstage(&1, &2, ret)}
       ]
-      assert {:ok, %{"plugins" => [_, _, _] = plugins}} = chanhandler.update %{"plugins" => plugins}, pid
+      assert {:ok, %{"plugins" => [_, _, _] = plugins}} = chanhandler.update(%{"plugins" => plugins}, pid)
       [%{"id" => ida} = a, %{"id" => idb} = b, %{"id" => idc} = c] = plugins
       a = Map.put a, "pipeline", ["serial", idb]
       c = Map.put c, "pipeline", ["serial", ida]
+
+      # assert we open gen_serial
+      assert_receive {ref, :open, _path, _opts, fsm}
 
       assert {:ok, %{"plugins" => [%{"id" => ^ida},
                                    %{"id" => ^idb},
                                    %{"id" => ^idc}]}} = chanhandler.update %{"plugins" => [a, b, c]}, pid
 
-      # assert we open gen_serial
+      # assert we re-open gen_serial due to update
       assert_receive {ref, :open, _path, _opts, fsm}
 
-      # "received" from serial port
+      # "received" from serial port by pipeline
       buf = "hello"
       send fsm, {:serial, ref, buf}
-      assert_receive {^ref, :state}
+      assert_receive {^ref, :state}, 1000
 
       # should be forwarded to `laststate`
       assert {:ok, %{"plugins" => [_, %{"state" => ^buf}, _]}} = chanhandler.get pid
@@ -116,6 +119,92 @@ defmodule PluginTTY2Test do
   def laststate({:event, :input, data, _meta}, _state, {ref, caller}) do
     send caller, {ref, :state}
     {:state, data}
+  end
+
+  test "remove tty", %{test: name} do
+    {ref, parent} = {make_ref, self}
+
+    with_mock :gen_serial, [
+        open: fn(path, opts) ->
+          send parent, {ref, :open, path, opts, self}
+          {:ok, ref}
+        end,
+        bsend: fn(ref, buf, _timeout) ->
+          send parent, {ref, :send, buf}
+          :ok
+        end,
+        close: fn(ref, _timeout) ->
+          send parent, {ref, :close}
+          :ok
+        end] do
+
+      # initialize channel with plugins
+      chan = "#{name}"
+      path = "/dev/vtty2"
+      plugins = [%{"plugin" => "tinyconnect_tty2", "path" => path, "options" => %{"baud" => 19200, "flow_control" => "none"}}]
+      {:ok, manager} = :channel_manager.start_link name
+      :ok = :channel_manager.add %{"channel" => chan, "plugins" => plugins}, manager
+
+      {:ok, {pid, mod}} = :channel_manager.child chan, manager
+      {:ok, _} = mod.get pid
+      assert_receive {^ref, :open, _path, _opts, fsm}
+
+      monref = Process.monitor fsm
+
+      {:io, %{"portref" => portref}} = :sys.get_state fsm
+      send fsm, {:serial_closed, portref}
+      refute_receive {:DOWN, ^monref, :process, ^fsm, _}
+
+      #  on serial close the fsm should immediately retry connection
+      #  which should return ok or some error
+      {:ok, _} = mod.get pid
+
+      :timer.sleep 500
+    end
+  end
+
+  test "update port argument should restart", %{test: name} do
+    [path, path2] = ["/dev/vtty1", "/dev/appended-tty"]
+    {ref, mock} = portmock self
+
+    with_mock :gen_serial, mock do
+      chan = "#{name}"
+      {:ok, manager} = :channel_manager.start_link name
+
+      plugins = [%{"plugin" => "tinyconnect_tty2",
+                   "path" => path,
+                   "options" => %{"baud" => 19200, "flow_control" => "none"}}]
+
+      :ok = :channel_manager.add %{"channel" => chan, "plugins" => plugins}, manager
+
+      {:ok, {pid, mod}} = :channel_manager.child chan, manager
+      {:ok, x} = mod.get pid
+
+      assert_receive {^ref, :open, _path, _opts, _fsm}
+
+      plugins = [%{"plugin" => "tinyconnect_tty2",
+                   "path" => path2,
+                   "options" => %{"baud" => 19200, "flow_control" => "none"}}]
+      assert {:ok, _} = mod.update %{"plugins" => plugins}, pid
+      assert_receive {^ref, :open, _path, _opts, _fsm}
+    end
+  end
+
+  defp portmock(who \\ self) do
+    ref = make_ref
+    {ref, [
+      open: fn(path, opts) ->
+        send who, {ref, :open, path, opts, self}
+        {:ok, ref}
+      end,
+      bsend: fn(ref, buf, _timeout) ->
+        send who, {ref, :send, buf}
+        :ok
+      end,
+      close: fn(ref, _timeout) ->
+        send who, {ref, :close}
+        :ok
+      end]}
   end
 end
 

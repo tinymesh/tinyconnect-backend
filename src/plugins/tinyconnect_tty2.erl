@@ -26,7 +26,8 @@ args(Def, [Arg | Rest], Args) ->
    end.
 
 get_in([], Arg) -> Arg;
-get_in([H | T], Arg) when is_map(Arg) -> get_in(T, maps:get(H, Arg, undefined));
+get_in([{H, Def} | T], Arg) when is_map(Arg) -> get_in(T, maps:get(H, Arg, Def));
+get_in([H | T], Arg) when is_map(Arg) -> get_in([{H, undefined} | T], Arg);
 get_in([_H | _T], _Arg) -> undefined.
 
 handle({start, ChannelName, #{} = Def}, _State) ->
@@ -40,7 +41,14 @@ handle({start, ChannelName, #{} = Def}, _State) ->
       {args, Args} -> {error, {args, Args}}
    end;
 
+handle(serialize, nostate) -> {ok, <<"incomplete">>};
 handle(_, nostate) -> ok;
+
+handle({update, PortDef, #{<<"channel">> := Channel}}, Server) ->
+   ok = gen_fsm:sync_send_all_state_event(Server, stop),
+   case handle({start, Channel, PortDef}, nostate) of
+      {ok, PID} -> {state, PID, PortDef}
+   end;
 
 
 handle(Ev = serialize, Server) ->
@@ -53,10 +61,10 @@ handle({event, input, <<Buf/binary>>, _Meta}, Server) ->
 % backedoff retry TTY start
 open(connect, #{<<"path">> := Path,
                 <<"options">> := PortOpts} = State) ->
-   Backoff = maps:get(<<"backoff">>, State, 1) * 2.75,
-   NewState = maps:put(<<"backoff">>, min(Backoff, 120), State),
+   NewBackoff = maps:get(<<"backoff">>, State, 1) * 2.75,
+   NewState = maps:put(<<"backoff">>, min(NewBackoff, 120), State),
 
-   case (catch gen_serial:open(Path, PortOpts)) of
+   case (catch gen_serial:open(binary_to_list(Path), PortOpts)) of
       {ok, PortRef} ->
          _ = lager:info("tty2: open ~s", [Path]),
          {next_state, io, maps:put(<<"portref">>, PortRef, NewState)};
@@ -64,18 +72,18 @@ open(connect, #{<<"path">> := Path,
 
       {error, {exit, {signal, 11}}} ->
          _ = lager:info("tty2: open ~s ERR: ~s", [Path, "EACCESS"]),
-         gen_fsm:send_event_after(trunc(Backoff * 1000), connect),
-         {next_state, open, maps:put(<<"portref">>, <<"error: eaccess">>, NewState)};
+         gen_fsm:send_event_after(trunc(NewBackoff * 1000), connect),
+         {next_state, open, maps:put(<<"portref">>, {error, eaccess}, NewState)};
 
       {error, {_, [H|_] = Err}} when is_integer(H); is_binary(H); is_list(H) ->
-         gen_fsm:send_event_after(trunc(Backoff * 1000), connect),
+         gen_fsm:send_event_after(trunc(NewBackoff * 1000), connect),
          _ = lager:info("tty2: open ~s ERR: ~s", [Path, Err]),
          Str = iolist_to_binary([<<"error: ">>, Err]),
-         {next_state, open, maps:put(<<"portref">>, Str, NewState)};
+         {next_state, open, maps:put(<<"portref">>, {error, Str}, NewState)};
 
       {error, Err} ->
          _ = lager:info("tty2: open ~s ERR: ~p", [Path, Err]),
-         gen_fsm:send_event_after(trunc(Backoff * 1000), connect),
+         gen_fsm:send_event_after(trunc(NewBackoff * 1000), connect),
          {next_state, open, maps:put(<<"portref">>, {error, Err}, NewState)}
    end.
 
@@ -88,7 +96,13 @@ io({serial, _Port, Buf},
 io({write, <<Buf/binary>>}, #{<<"portref">> := Port} = State) ->
    _ = lager:debug("tty2: write ~s : ~p", [maps:get(<<"path">>, State), Buf]),
    ok = gen_serial:bsend(Port, Buf, 1000),
-   {next_state, io, State, hibernate}.
+   {next_state, io, State, hibernate};
+
+io({serial_closed, Port}, #{<<"portref">> := Port} = State) ->
+   _ = lager:info("tty: serial port closed (~s)", [maps:get(<<"path">>, State)]),
+   % send a retry attempt, in the meantime portref is nil
+   gen_fsm:send_event_after(0, connect),
+   {next_state, open, State#{<<"portref">> => {error, enoent}}, hibernate}.
 
 io({write, <<Buf/binary>>}, From, #{<<"portref">> := Port} = State) ->
    _ = lager:debug("tty2: write ~s : ~p", [maps:get(<<"path">>, State), Buf]),
@@ -131,10 +145,21 @@ handle_event(_, StateName, State) -> {next_state, StateName, State, hibernate}.
 
 handle_sync_event(serialize, _From, StateName, State) ->
    case maps:get(<<"portref">>, State, undefined) of
-      {error, <<E/binary>>} -> {reply, {ok, E}, StateName, State, hibernate};
-      {error, _} -> {reply, {ok, <<"error: undefined error">>}, StateName, State, hibernate};
-      _S -> {reply, {ok, <<"alive">>}, StateName, State, hibernate}
-   end.
+      {error, <<E/binary>>} ->
+         {reply, {ok, #{<<"error">> => #{<<"msg">> => E}}}, StateName, State, hibernate};
+
+      {error, Code} when is_atom(Code) ->
+         {reply, {ok, #{<<"error">> => #{<<"code">> => Code}}}, StateName, State, hibernate};
+
+      {error, _} ->
+         {reply, {ok, #{<<"error">> => #{<<"msg">> => <<"undefined error">>}}}, StateName, State, hibernate};
+
+      _S ->
+         {reply, {ok, <<"alive">>}, StateName, State, hibernate}
+   end;
+handle_sync_event(stop, _From, _StateName, #{<<"portref">> := _Port, <<"path">> := Path} = State) ->
+   _ = lager:info("tty2: close ~s", [Path]),
+   {stop, normal, ok, State}.
 
 handle_info(Info, StateName, State) ->
    ?MODULE:StateName(Info, State).
