@@ -37,7 +37,8 @@ start_link(#{<<"channel">> := Name} = Def) ->
    gen_server:start_link({global, Name}, ?MODULE, Def, []).
 
 -spec init(tinyconnect_channel:extdef()) -> {ok, tinyconnect_channel:extdef()}.
-init(#{<<"plugins">> := Plugins} = Def) ->
+init(#{<<"plugins">> := Plugins, <<"channel">> := Chan} = Def) ->
+   _ = lager:info("channel: ~p creating", [Chan]),
    process_flag(trap_exit, true),
 
    NewPlugins = lists:map(fun
@@ -62,7 +63,9 @@ handle_cast({emit, Plugin, EvType, Ev}, State) ->
 
 handle_info(_, State) -> {noreply, State}.
 
-terminate(_Reason, _State) -> ok.
+terminate(Reason, #{<<"channel">> := Chan} = _State) ->
+   _ = lager:info("channel: ~p terminating: ~p", [Chan, Reason]),
+   ok.
 
 code_change(_OldVsn, _NewVsn, State) -> {ok, State}.
 
@@ -113,24 +116,6 @@ state_from_plugins([{_, {state, _}, _} | Rest]) -> state_from_plugins(Rest).
 % Listeners are defined in the channel itself in the form `[c1/a > c1/b, ..]`
 % `emit` can not yet send across channels, but that capability may appear in future release
 '@emit'(PlugID, EvType, Ev, #{<<"channel">> := Channel, <<"plugins">> := Plugins} = State) ->
-   %case action(PlugID, {event, EvType, Ev, #{from => [Channel, PlugID]}}, State) of
-   %   % If nothing is to be done then, do nothing
-   %   ok ->
-   %      {noreply, State};
-
-   %   stateless ->
-   %      {noreply, State}; % stateless never changes
-
-   %   % just update state, don't anything at all
-   %   {ok, NewState} ->
-   %      {noreply, NewState};
-
-   %   {emit, {EvType, Ev}, #{<<"pipeline">> := Pipe}, NewState} ->
-   %      % evaluate an emit down the pipeline chain!
-   %      Meta = #{from => [[Channel, PlugID]]},
-   %      ForwardAction = {event, EvType, Ev, Meta},
-   %      '@emit-pipe'(Pipe, ForwardAction, NewState)
-   %end.
    case plugin_by_id(PlugID, Plugins) of
       false ->
          {noreply, State};
@@ -157,18 +142,31 @@ state_from_plugins([{_, {state, _}, _} | Rest]) -> state_from_plugins(Rest).
    '@emit-pipe'([], Action, State);
 
 '@emit-pipe'([<<"parallel">>, H | Rest], Action, State) ->
-   case '@emit-pipe'([H], Action, State) of
-      {noreply, NewState} ->
-         '@emit-pipe'([<<"parallel">> | Rest], Action, NewState);
+   case H of
+      <<_/binary>> ->
+         case '@emit-pipe'([H], Action, State) of
+            {noreply, NewState} ->
+               '@emit-pipe'([<<"parallel">> | Rest], Action, NewState);
 
-      % parallel does not support emitting
-      {emit, _NextEv, _PlugDef, NewState} ->
-         '@emit-pipe'([<<"parallel">> | Rest], Action, NewState)
+            % parallel does not support pipelines, emit same action over again
+            {emit, _NextEv, _PlugDef, NewState} ->
+               '@emit-pipe'([<<"parallel">> | Rest], Action, NewState)
+         end;
+
+      [T | _] = Statements when T =:= <<"parallel">>; T =:= <<"serial">> ->
+         % loop through the thing, since we are in parallel mode theres
+         % no point of keep emitting stuff, but get the recent state
+         NewState = case '@emit-pipe'(Statements, Action, State) of
+            {noreply, State2} -> State2;
+            {emit, _Next, _PlugDef, State2} -> State2
+         end,
+         % now continue down parallel chain
+         '@emit-pipe'(Rest, Action, NewState)
    end;
 
 % emit in serial, like `foldl`
 '@emit-pipe'([<<"serial">>], Action, State) ->
-   '@emit-pipe'([], Action, State);
+'@emit-pipe'([], Action, State);
 
 '@emit-pipe'([<<"serial">>, H | Rest], {event, Type, Ev, #{from := From} = Meta} = Action,
              #{<<"channel">> := Channel} = State) ->
@@ -187,10 +185,23 @@ state_from_plugins([{_, {state, _}, _} | Rest]) -> state_from_plugins(Rest).
                '@emit-pipe'([<<"serial">> |  Rest], ForwardAction, NewState)
          end;
 
-      _ ->
-         error_logger:error_msg("serial pipes can not contain anything but plugins (chain: ~p)",
-            [pipechain(Action)]),
-         {noreply, state}
+      % nested statements
+      [T | _] = Statements when T =:= <<"parallel">>; T =:= <<"serial">> ->
+         % loop through the thing, since we are in serial mode we have to handle
+         % emit's from plugins
+         case '@emit-pipe'(Statements, Action2, State) of
+            {noreply, State2} ->
+               '@emit-pipe'(Rest, Action, State2);
+
+            {emit, {EvType2, Ev2}, _PlugDef, State2} ->
+               ForwardAction = {event, EvType2, Ev2, Meta2},
+               '@emit-pipe'([<<"serial">> |  Rest], ForwardAction, State2)
+         end;
+
+      X ->
+         error_logger:error_msg("serial pipes can not contain anything but plugins~n\tactual: ~p~n\tchain: ~s",
+            [X, pipechain(Action)]),
+         {noreply, State}
    end;
 
 '@emit-pipe'([[<<"serial">> | _] = Items | Rest], Action, State) ->
@@ -272,7 +283,7 @@ call_action({Target, PlugState, PlugDef}, Action) ->
 'update-trigger'([], State) -> {ok, State};
 
 'update-trigger'([{<<"plugins">>, Plugins} | Rest], #{<<"plugins">> := CurrPlugins} = State) ->
-   Plugins2 = lists:map(fun({_Plug, _PlugState, NewPlugDef} = M) ->
+   Plugins2 = lists:map(fun({_Plug, PlugState, NewPlugDef} = NewPlug) ->
       % start or update plugin
       MatchID = maps:get(<<"id">>, NewPlugDef, none),
       case lists:filter(fun
@@ -280,15 +291,35 @@ call_action({Target, PlugState, PlugDef}, Action) ->
                ({_, _, #{}}) -> false
            end,  CurrPlugins) of
 
-         [] -> start_plugin(M, State);
-         [{Mod, CurrPlugState, _CurrPlugDef} = CurrPlugin] ->
-            case call_action(CurrPlugin, {update, NewPlugDef, State}) of
-               ok -> CurrPlugin;
-               {ok, NewPlugDef} -> {Mod, CurrPlugState, NewPlugDef};
-               {error, _E} -> CurrPlugin;
-               {'EXIT', {function_clause, _}} -> CurrPlugin;
+         [] -> start_plugin(NewPlug, State);
+         [{Mod, _CurrPlugState, _CurrPlugDef} = CurrPlugin] ->
+            case (catch call_action(CurrPlugin, {update, NewPlugDef, State})) of
+               ok ->
+                  NewPlug;
+
+               {ok, ModifiedPlugDef} ->
+                  {Mod, PlugState, ModifiedPlugDef};
+
+               {state, NewPlugState, ModifiedPlugDef} ->
+                  {Mod, {state, NewPlugState}, ModifiedPlugDef};
+
+               % special case for stateful plugins that may complain about args
+               {error, {args, _}} = NewPlugState ->
+                  {Mod, NewPlugState, NewPlugDef};
+
+               {error, _E} ->
+                  CurrPlugin;
+
+               % handle function can't match `{update, _, _}` call
+               {'EXIT', {function_clause, _}} ->
+                  NewPlug;
+
+               % plugin is stateful and child just terminated
+               {'EXIT', {normal, _}} ->
+                  {Mod, nostate, NewPlugDef};
+
                X ->
-                  error_logger:error_msg("invalid plugin return for ~p: ~p", [Mod, X]),
+                  _ = lager:error("update: invalid plugin return for ~p: ~p", [Mod, X]),
                   CurrPlugin
             end
       end
@@ -331,11 +362,14 @@ serialize_plugin({T, _PlugState, PlugDef} = Plug) ->
          maps:put(<<"state">>, #{<<"error">> => #{<<"args">> => Args2}}, PlugDef);
 
       % optimistic approach to see if serialized is supported
+      {'EXIT', {{function_clause, _}, _}} ->
+         PlugDef;
+
       {'EXIT', {function_clause, _}} ->
          PlugDef;
 
       X ->
-         error_logger:error_msg("invalid plugin return for ~p: ~p", [T, X]),
+         error_logger:error_msg("serialize: invalid plugin return for ~p: ~p", [T, X]),
          PlugDef
    end.
 
@@ -363,19 +397,19 @@ start_plugin2(PlugDef, #{<<"channel">> := Channel}) ->
       <<Plugin/binary>> ->
          case binary:split(Plugin, <<":">>) of
             [M, F] ->
-               Mod = binary_to_existing_atom(M, utf8),
+               Mod = binary_to_atom(M, utf8),
                [F2|_] = binary:split(F, <<"/">>),
-               Fun = binary_to_existing_atom(F2, utf8),
+               Fun = binary_to_atom(F2, utf8),
                fun Mod:Fun/2;
 
             [MF] ->
                case binary:split(MF, <<"/">>) of
                   [F, _A] ->
-                     Fun = binary_to_existing_atom(F, utf8),
+                     Fun = binary_to_atom(F, utf8),
                      fun tinyconnect_plugins:Fun/2;
 
                   [M] ->
-                     Mod = binary_to_existing_atom(M, utf8),
+                     Mod = binary_to_atom(M, utf8),
                      fun Mod:handle/2
                end
          end;
@@ -399,6 +433,9 @@ start_plugin2(PlugDef, #{<<"channel">> := Channel}) ->
 
       % Start a stateless agent plugin (all state is hold outside)
       {ok, PlugState} -> {Handler, {state, PlugState}, PlugDef};
+
+      {state, NewPlugState, ModifiedPlugDef} ->
+         {Handler, {state, NewPlugState}, ModifiedPlugDef};
 
       % Plugin can't start due to input arguments
       {error, {args, Args}} ->
