@@ -29,7 +29,6 @@ defmodule Tinyconnect.Mixfile do
       :backoff,
 
       :jsx,
-      :gen_serial,
       :tinymesh
      ],
      env: []
@@ -46,7 +45,7 @@ defmodule Tinyconnect.Mixfile do
       {:lager, "~> 3.2"},
 
       # dev, since they need native compilaa
-      {:gen_serial, github: "lafka/gen_serial", branch: "lafka-add-makefile", compile: "make", app: false},
+      {:gen_serial, github: "lafka/gen_serial", branch: "lafka-add-makefile", app: false},
       {:procket, github: "msantos/procket", tag: "0.7.0"},
 
       # test
