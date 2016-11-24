@@ -11,6 +11,7 @@
    , forward/2
    , as_list/1
    , shift/2
+   , without/2
 
    , init/1
    , handle_call/3
@@ -65,6 +66,10 @@ as_list(Queue) ->
 shift(Queue, N) ->
    gen_server:call(Queue, {shift, N}).
 
+-spec without(queue(), [item()]) -> ok.
+without(Queue, Items) ->
+   gen_server:call(Queue, {without, Items}).
+
 -spec start_link( queue(), pid() ) -> {ok, pid()}.
 start_link(Queue, ForwardTo) ->
    case whereis(Queue) of
@@ -102,6 +107,10 @@ handle_call({add, Now, Buf}, _From, #{queue := Queue, forwarding := ForwardTo} =
    end,
 
    {reply, {ok, {Now, Buf}}, State#{queue := NewQueue}};
+
+handle_call({without, Items}, _From, #{queue := Queue} = State) ->
+   NewQueue = queue:filter(fun(Item) -> not lists:member(Item, Items) end, Queue),
+   {reply, ok, State#{queue => NewQueue}};
 
 handle_call(peek, _From, #{queue := Queue} = State) ->
    case queue:peek(Queue) of

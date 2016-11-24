@@ -47,4 +47,17 @@ defmodule NotifyQueueTest do
     assert_received {:'$notify_queue', {:update, ^q}}
     assert {:ok, {_, ^buf} = ^item} = Queue.peek q
   end
+
+  test "without" do
+    q = :'without-test'
+    {:ok, _pid} = Queue.start_link q, self
+
+    [a,b,c,d,e,f,g] = Enum.map ["a","b","c","d","e","f","g"], fn(x) ->
+      {:ok, x2} = Queue.add q, x
+      x2
+    end
+
+    assert :ok === Queue.without q, [b,c,e,f]
+    assert {:ok, [a, d, g]} === Queue.as_list q
+  end
 end
