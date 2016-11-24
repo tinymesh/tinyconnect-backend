@@ -8,7 +8,7 @@ defmodule PluginUDPTest do
     port = 6589
     {:ok, sock} = :gen_udp.open port, [:binary, {:active, false}, :inet6]
 
-    ret = {ref, parent} = {make_ref, self}
+    ret = {ref, _parent} = {make_ref, self}
     :ok = :channel_manager.add %{
       "channel" => chan,
       "channel_handler" => chanhandler,

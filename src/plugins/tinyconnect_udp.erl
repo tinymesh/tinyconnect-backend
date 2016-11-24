@@ -13,17 +13,13 @@
    , code_change/3
 ]).
 
-handle({start, ChannelName, #{} = PluginDef}, _State) ->
-%   % let's not assume thats it's a domain
-%   {Host, Port} = case lists:reverse(binary:split(Remote, <<":">>, [global])) of
-%      [P | A] -> {join(lists:reverse(A), <<":">>), binary_to_integer(Port)};
-%      [P] -> {<<"::1">>, binary_to_integer(Port)}
-%   end,
-%
-%   {ok, Sock} = gen_udp:open(0, [binary]),
-
-   io:format("start this udp thing!!!~n~nasdasd~n~n"),
+handle({start, ChannelName, #{<<"remote">> := _Remote} = PluginDef}, _State) ->
    gen_server:start_link(?MODULE, [ChannelName, PluginDef], []);
+handle({start, _ChannelName, #{} = _PluginDef}, _State) ->
+   ok;
+
+handle(_, nostate) -> ok;
+
 
 handle(Ev = serialize, Server) ->
    gen_server:call(Server, Ev);
