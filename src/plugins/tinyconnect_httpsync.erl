@@ -55,6 +55,9 @@ handle({start, ChannelName, PluginDef}, _State) ->
 
 handle(_, nostate) -> ok;
 
+handle(serialize, Server) ->
+   gen_server:call(Server, serialize);
+
 handle({event, input, <<Buf/binary>>, _Meta}, Server) ->
    gen_server:call(Server, {input, utc_datetime(erlang:timestamp()), Buf});
 handle({event, queue, QueueItems, _Meta}, Server) ->
@@ -72,7 +75,6 @@ init([Chan, #{<<"id">> := ID} = PluginDef]) ->
       channel => Chan,
       id => ID,
       incoming => [],
-      remote => undefined,
       definition => PluginDef,
       recv => {undefined, undefined, backoff:init(15000, 1800000)},
       flush => {undefined, backoff:init(15000, 1800000)}
@@ -105,6 +107,14 @@ handle_call({queue, Items}, _From, #{incoming := Incoming, id := _ID, channel :=
    Reply = {emit, forwarded, Forwarded, self()},
    {reply, Reply, NewState};
 
+handle_call(serialize, _From, #{recv := {Ref, _, _}, incoming := In} = State) ->
+   Reply = #{
+      <<"queue-size">> => length(In),
+      <<"receiving">>      => Ref =/= undefined
+   },
+
+   {reply, {ok, Reply}, State};
+
 handle_call(stop, _From, State) ->
    {stop, normal, ok, State}.
 
@@ -135,7 +145,7 @@ handle_info({hackney_response, Ref, {status, Status, _}},
          ok = cancel_timer(Timer),
          {Delay, NewBackoff} = backoff:fail(Backoff),
          NewTimer = erlang:send_after(Delay, reconnect, self()),
-         {noreply, State#{recv => {undefined, NewTimer, NewBackoff}}}
+         {noreply, State#{recv => {Ref, NewTimer, NewBackoff}}}
    end;
 
 handle_info({hackney_response, Ref, {headers, _}}, #{recv := {Ref, _, _}} = State) ->
