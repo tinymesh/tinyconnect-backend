@@ -10,7 +10,7 @@ defmodule PluginPtyTest do
     assert {:ok, {pid, ^chanhandler}} = :channel_manager.child chan, manager
 
     link = "/tmp/pty-#{String.replace "#{name}", " ", "-"}"
-    ret = {ref, parent} = {make_ref, self}
+    ret = {ref, _parent} = {make_ref, self}
     plugins = [
       %{"name" => "in",
         "plugin" => &inputstage(&1, &2, ret),
@@ -29,7 +29,8 @@ defmodule PluginPtyTest do
 
     assert_receive {^ref, :'input-start', inputpid}
 
-    :timer.sleep 1
+    # race conditions, no guarantee that socat spins up before gen_server:init is done
+    :timer.sleep 100
     assert {:ok, _} = File.stat(link)
 
     {:ok, port} = :gen_serial.open '#{link}', [active: true,

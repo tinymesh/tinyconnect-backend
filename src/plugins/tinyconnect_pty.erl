@@ -73,7 +73,10 @@ maybe_link(Arg, #{}) -> Arg.
 
 
 
-handle_call(serialize, _From, State) -> {reply, {ok, State}, State};
+handle_call(serialize, _From, #{<<"port">> := Port} = State) when Port =/= undefined ->
+   {reply, {ok, <<"alive">>}, State};
+handle_call(serialize, _From, #{} = State) ->
+   {reply, {ok, <<"unknown">>}, State};
 handle_call({event, input, <<Buf/binary>>, _Meta}, _From, #{<<"port">> := Port} = State) ->
    #{<<"link">> := Path} = State,
    _ = lager:debug("pty: send ~s : ~p", [Path, Buf]),
@@ -89,7 +92,9 @@ handle_info({_Port, {data, Input}}, #{<<"link">> := Path,
    _ = lager:debug("pty: recv ~s : ~p", [Path, Input]),
    tinyconnect_channel2:emit({global, Chan}, ID, input, Input),
    {noreply, State};
-handle_info(nil, State) -> {noreply, State}.
+
+handle_info({_Port, {exit_status, _}}, State) ->
+   {noreply, maps:put(<<"port">>, undefined, State)}.
 
 terminate(_Reason, _State) -> ok.
 
