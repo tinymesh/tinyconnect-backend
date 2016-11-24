@@ -7,17 +7,17 @@
 
    , ensure/1
    , ensure/2
+
+   , lookup/1
 ]).
 
 ensure(Queue) ->
    ensure(Queue, undefined).
 
 ensure(Queue, ForwardTo) ->
-   Children = supervisor:which_children(?MODULE),
-
-   case lists:keyfind(Queue, 1, Children) of
-      {Queue, ChildPid, _, _} -> {ok, ChildPid};
-      false -> start_child(Queue, ForwardTo)
+   case lookup(Queue) of
+      false -> start_child(Queue, ForwardTo);
+      {ok, ChildPid} -> {ok, ChildPid}
    end.
 
 start_child(Queue, ForwardTo) ->
@@ -42,3 +42,11 @@ start_link() ->
 
 init([]) ->
    {ok, {#{ strategy => one_for_one }, []}}.
+
+lookup(Queue) ->
+   Children = supervisor:which_children(?MODULE),
+
+   case lists:keyfind(Queue, 1, Children) of
+      {Queue, ChildPid, _, _} -> {ok, ChildPid};
+      false -> false
+   end.

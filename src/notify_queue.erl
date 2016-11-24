@@ -72,21 +72,7 @@ without(Queue, Items) ->
 
 -spec start_link( queue(), pid() ) -> {ok, pid()}.
 start_link(Queue, ForwardTo) ->
-   case whereis(Queue) of
-      Pid when is_pid(Pid) ->
-         Alive = is_process_alive(Pid),
-         if
-            Alive ->
-               link(Pid),
-               {ok, Pid};
-
-            true ->
-               gen_server:start_link({local, Queue}, ?MODULE, [Queue, ForwardTo], [])
-         end;
-
-      undefined ->
-         gen_server:start_link({local, Queue}, ?MODULE, [Queue, ForwardTo], [])
-   end.
+   gen_server:start_link(?MODULE, [Queue, ForwardTo], []).
 
 init([Queue, ForwardTo]) ->
    {ok, #{queue => queue:new(),
@@ -98,12 +84,12 @@ handle_call({add, Now, Buf}, _From, #{queue := Queue, forwarding := ForwardTo} =
 
    Pid = if
       is_pid(ForwardTo)  -> ForwardTo;
-      is_atom(ForwardTo) -> whereis(ForwardTo)
+      is_atom(ForwardTo) -> queue_manager:lookup(ForwardTo)
    end,
 
    _ = case Pid of
-      undefined -> nil;
-      Pid -> Pid ! {'$notify_queue', {update, maps:get(name, State)}}
+      false -> nil;
+      Pid when is_pid(Pid) -> Pid ! {'$notify_queue', {update, maps:get(name, State)}}
    end,
 
    {reply, {ok, {Now, Buf}}, State#{queue := NewQueue}};
