@@ -59,7 +59,7 @@ start_link(Sup) ->
 init([]) ->
    {ok, Cfg} = load(),
    {channels, Channels} = lists:keyfind(channels, 1, Cfg),
-   Children = lists:map(fun(#{channel := Chan} = Def) ->
+   Children = lists:map(fun(#{<<"channel">> := Chan} = Def) ->
       #{
          id => Chan,
          start => {tinyconnect_channel2, start_link, [Def]},
