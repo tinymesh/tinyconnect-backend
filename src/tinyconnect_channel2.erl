@@ -49,7 +49,9 @@ init(#{<<"plugins">> := Plugins, <<"channel">> := Chan} = Def) ->
       end, Plugins),
 
    NewState = Def#{ <<"plugins">> => NewPlugins },
-   NewPlugins2 = lists:map(fun(P) -> start_plugin(P, NewState) end, NewPlugins),
+   NewPlugins2 = lists:map(fun(P) ->
+      start_plugin(P, NewState)
+   end, NewPlugins),
    {ok, NewState#{<<"plugins">> => NewPlugins2}}.
 
 handle_call(get, _From, State) -> '@get'(State);
@@ -217,20 +219,40 @@ state_from_plugins([{_, {state, _}, _} | Rest]) -> state_from_plugins(Rest).
    end;
 
 '@emit-pipe'([<<Plugin/binary>> | Rest], Action, State) ->
-   {event, T, Ev, #{from := F}} = Action,
-   [[X2|_]|R] = lists:reverse(lists:map(fun([_Chan,Plug]) -> [Plug, " -> "] end, F)),
-   From = iolist_to_binary(lists:reverse([X2|R])),
-
-   _ = lager:debug("channel2: @emit-pipe ~p/~p <~~ ~s", [T, Ev, From]),
+   {event, T, _Ev, #{from := F}} = Action,
+   From = from_as_list(State, F),
+   _ = lager:debug("channel2: @emit-pipe\n\ttype: ~p\n\tpath: ~s", [T, From]),
 
    case action(Plugin, Action, State) of
       {ok, NewState} -> '@emit-pipe'(Rest, Action, NewState);
-      {emit, {_EvType, _Ev}, _PlugDef, _NewState} = X -> X;
+      {emit, {_EvType, _Ev2}, _PlugDef, _NewState} = X -> X;
       {error, {args, _}} -> '@emit-pipe'(Rest, Action, State)
    end.
 
+from_as_list(State, From) ->
+   [[_,H] | From2]  = lists:map(fun(A) -> [" -> ", A] end,
+                                from_as_list(State, From, [])),
+   [H | From2].
+from_as_list(_State, [], Acc) -> lists:reverse(Acc);
+from_as_list(#{<<"plugins">> := Plugins} = State, [[Chan, PluginID] | Rest], Acc) ->
+   PrettyName = case plugin_by_id(PluginID, Plugins) of
+      false when is_binary(PluginID) ->
+         PluginID;
+
+      false ->
+         <<"... complex ...">>;
+
+      {_, [{_Mod, _PlugState, #{<<"name">> := Name}} | _]} ->
+         Name;
+
+      {_, [{_Mod, _PlugState, #{<<"plugin">> := P}} | _]} ->
+         iolist_to_binary(io_lib:format("~p", [P]))
+   end,
+
+   from_as_list(State, Rest, [ <<Chan/binary, $/, PrettyName/binary>> | Acc ]).
+
 pipechain({event, _Type, _Ev, #{from := From}}) ->
-   [_|R] = lists:reverse(lists:flatmap(fun([A, B]) -> [A, "/", B, " -> "] end, From)),
+   [_|R] = lists:reverse(lists:flatmap(fun([A, B]) -> [$", A, "/", B, $", " -> "] end, From)),
    lists:reverse(R).
 
 % find plugin, and call action/2 on it
@@ -255,8 +277,8 @@ action(PlugID, Action, #{<<"channel">> := Channel, <<"plugins">> := Plugins} = S
                Err;
 
             X ->
-               error_logger:error_msg("plugin ~s/~s invalid return:~n~p~nplugin may be in invalid state~n", [
-                  Channel, ID, X]),
+               lager:error("plugin ~s/~s invalid return:\n\taction: ~p\n\treturn: ~p\n\nplugin may be in invalid state~n", [
+                  Channel, ID, Action, X]),
 
                {ok, State}
          end
@@ -502,3 +524,5 @@ join([], _Sep) -> <<>>;
 join([Part], _Sep) -> Part;
 join([Head|Tail], Sep) ->
   lists:foldl(fun(Value, Acc) -> <<Acc/binary, Sep/binary, Value/binary>> end, Head, Tail).
+
+
