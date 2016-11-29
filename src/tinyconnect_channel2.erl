@@ -180,7 +180,8 @@ state_from_plugins([{_, {state, _}, _} | Rest]) -> state_from_plugins(Rest).
       <<_/binary>> ->
          case '@emit-pipe'([H], Action2, State) of
             {noreply, NewState} ->
-               '@emit-pipe'([<<"serial">> | Rest], Action2, NewState);
+               {noreply, NewState};
+               %'@emit-pipe'([<<"serial">> | Rest], Action2, NewState);
 
             {emit, {EvType2, Ev2}, _PlugDef, NewState} ->
                ForwardAction = {event, EvType2, Ev2, Meta2},
@@ -224,9 +225,14 @@ state_from_plugins([{_, {state, _}, _} | Rest]) -> state_from_plugins(Rest).
    _ = lager:debug("channel2: @emit-pipe\n\ttype: ~p\n\tpath: ~s", [T, From]),
 
    case action(Plugin, Action, State) of
-      {ok, NewState} -> '@emit-pipe'(Rest, Action, NewState);
-      {emit, {_EvType, _Ev2}, _PlugDef, _NewState} = X -> X;
-      {error, {args, _}} -> '@emit-pipe'(Rest, Action, State)
+      {emit, {_EvType, _Ev2}, _PlugDef, _NewState} = X ->
+         X;
+
+      {ok, NewState} ->
+         '@emit-pipe'(Rest, Action, NewState);
+
+      {error, {args, _}} ->
+         '@emit-pipe'(Rest, Action, State)
    end.
 
 from_as_list(State, From) ->

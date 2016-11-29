@@ -1,6 +1,7 @@
-defmodule PluginUDPTest do
+defmodule PluginIntegrationTest do
   use ExUnit.Case, async: false
 
+  @tag external: true
   test "udp + httpsync" do
     port = 9134
     {:ok, sock} = :gen_udp.open port, [:binary, {:active, false}, :inet6]
@@ -40,7 +41,7 @@ defmodule PluginUDPTest do
     assert :ok = :hackney.close(ref)
   end
 
-  """
+  _ = """
   Virtual serial port scenario
 
   - some local application speaks to pty
@@ -48,6 +49,7 @@ defmodule PluginUDPTest do
   - httpsync picks up data from both pty and downstream and mirrors it to remote service
   - httpsync can also speak to downstream
   """
+  @tag external: true
   test "(pty <> udp <) > httpsync" do
     {:ok, channels} = :channel_manager.channels
     channel = Enum.find channels, &(&1["channel"] === "httpsync + pty + udp")
@@ -97,7 +99,59 @@ defmodule PluginUDPTest do
     assert_receive {:serial, ^tty, ^resp}
   end
 
+  @tag external: true
+  test "mqtt sync" do
+    channame = "mqtt sync"
+
+    {:ok, channels} = :channel_manager.channels
+
+    channel = Enum.find channels, &(&1["channel"] === channame)
+    mqtt = Enum.find channel["plugins"], &(&1["name"] === "mqtt")
+    forward = Enum.find channel["plugins"], &(&1["name"] === "forward")
+
+    cmd = <<10, 0, 0, 0, 1, 0, 3, 17, 0, 0>>
+    ev = <<35, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 254, 126, 0, 0, 2, 14,
+             0, 0, 0, 0, 0, 0, 121, 187, 0, 0, 0, 0, 0, 2, 0, 1, 34>>
+
+    {:ok, {pid, handler}} = :channel_manager.child channame
+
+    {:ok, client} = :emqttc.start_link host: 'localhost', client_id: "tinyconnect-test", logger: {:console, :info}
+
+    assert_receive {:mqttc, ^client, :connected}
+
+    # send command to all channels subscriptions
+    Enum.each mqtt["subscribe"], fn(t) -> :emqttc.publish(client, t, cmd) end
+    Enum.each mqtt["publish"], fn(t) -> :emqttc.subscribe(client, t) end
+
+    Enum.take_while Stream.cycle([1]), fn(_n) ->
+      {:ok, channel} = handler.get(pid)
+      plugin = Enum.find(channel["plugins"], &(&1["name"] === "collect"))
+
+      case {:input, cmd} == plugin["state"] do
+        true ->
+          false
+
+        false ->
+          receive do
+            :timeout -> assert :ok === :timeout
+          after 50 -> true end
+      end
+    end
+
+    assert :ok = handler.emit pid, forward["id"], :input, ev
+
+    assert_receive {:publish, _topic, ^ev}
+  end
+
+  @tag external: true
   test "pickup config mode" do
     port = 9136
   end
+
+  def forward({:event, :input, x, _meta}, state), do: {:emit, :input, x, state}
+  def forward(_, _state), do: :ok
+
+  def collect({:event, t, x, _meta} = e, state), do: {:state, {t, x}}
+  def collect(:serialize, state), do: {:ok, state}
+  def collect({:start, _, _}, _state), do: {:ok, nil}
 end

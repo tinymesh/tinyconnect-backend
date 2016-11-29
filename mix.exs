@@ -42,7 +42,9 @@ defmodule Tinyconnect.Mixfile do
       {:hackney, "~> 1.6"},
       {:tinymesh, github: "tinymesh/tm-proto-erlang"},
       {:backoff, "~> 1.1", manager: :rebar3},
-      {:lager, "~> 3.2"},
+      {:lager, "~> 3.2", override: true},
+
+      {:emqttc, github: "emqtt/emqttc"},
 
       # dev, since they need native compilaa
       {:gen_serial, github: "lafka/gen_serial", branch: "lafka-add-makefile", app: false},
